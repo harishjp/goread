@@ -1,5 +1,3 @@
-app.yaml
-d
-pw
-settings.go
-update
+auth.json
+build.sh
+goread

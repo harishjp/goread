@@ -21,13 +21,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mjibson/goread/_third_party/code.google.com/p/go-charset/charset"
+	"golang.org/x/net/html/charset"
 )
 
 func TestCDATALink(t *testing.T) {
 	r := Rss{}
 	d := xml.NewDecoder(strings.NewReader(ATALSOFT_FEED))
-	d.CharsetReader = charset.NewReader
+	d.CharsetReader = charset.NewReaderLabel
 	d.DefaultSpace = "DefaultSpace"
 	if err := d.Decode(&r); err != nil {
 		t.Fatal(err)
