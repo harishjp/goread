@@ -6,3 +6,6 @@ This was copied from mjibson/goread and modified to work with go116 env and move
 # Current build instructions:
   Building: `GOPATH=$(GOPATH) go build`
   Deploy: `GOPATH=$(GOPATH) gcloud beta app deploy`
+  First deploy:
+    gcloud beta app deploy index.yaml
+    gcloud app deploy queue.yaml cron.yaml
