@@ -18,6 +18,7 @@ package goread
 
 import (
 	"encoding/json"
+	"context"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -230,12 +231,12 @@ func doUncheckout(c mpg.Context) (*UserCharge, error) {
 }
 
 func stripe(c mpg.Context, method, urlStr, body string) (*http.Response, error) {
-	cl, cf := createHttpClient(c, time.Minute)
+	ctx, cf := context.WithTimeout(c, time.Minute)
 	defer cf()
-	req, err := http.NewRequest(method, fmt.Sprintf("https://api.stripe.com/v1/%s", urlStr), strings.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, fmt.Sprintf("https://api.stripe.com/v1/%s", urlStr), strings.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	req.SetBasicAuth(STRIPE_SECRET, "")
-	return cl.Do(req)
+	return http.DefaultClient.Do(req)
 }

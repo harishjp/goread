@@ -22,7 +22,6 @@ import (
 	"encoding/base64"
 	"encoding/xml"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -200,11 +199,14 @@ func SubscribeFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	fu, _ := url.Parse(f.Url)
 	fu.Fragment = ""
 	u.Add("hub.topic", fu.String())
-	req, err := http.NewRequest("POST", f.Hub, strings.NewReader(u.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	cl, cf := createHttpClient(c, time.Minute)
+	httpContext, cf := context.WithTimeout(c, time.Minute)
 	defer cf()
-	resp, err := cl.Do(req)
+	req, err := http.NewRequestWithContext(httpContext, "POST", f.Hub, strings.NewReader(u.Encode()))
+	if err != nil {
+		log.Errorf(c, "req error: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Errorf(c, "req error: %v", err)
 	} else if resp.StatusCode != http.StatusNoContent {
@@ -215,9 +217,11 @@ func SubscribeFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 			log.Errorf(c, "%s", resp.Body)
 		}
 		s += "resp err"
+	  resp.Body.Close()
 	} else {
 		log.Infof(c, "subscribed: %v", f.Url)
 		s += "success"
+	  resp.Body.Close()
 	}
 }
 
@@ -272,19 +276,9 @@ func fetchFeed(c mpg.Context, origUrl, fetchUrl string) (*Feed, []*Story, error)
 		}
 	}
 
-	cl, cf := createHttpClient(c, time.Minute)
+	httpContext, cf := context.WithTimeout(c, time.Minute)
 	defer cf()
-	if resp, err := cl.Get(fetchUrl); err == nil && resp.StatusCode == http.StatusOK {
-		const sz = 1 << 21
-		reader := &io.LimitedReader{R: resp.Body, N: sz}
-		defer resp.Body.Close()
-		b, err := ioutil.ReadAll(reader)
-		if err != nil {
-			return nil, nil, err
-		}
-		if reader.N == 0 {
-			return nil, nil, fmt.Errorf("feed larger than %d bytes", sz)
-		}
+	if b, header, err := httpGet(httpContext, fetchUrl); err == nil {
 		if autoUrl, err := Autodiscover(b); err == nil && origUrl == fetchUrl {
 			if autoU, err := url.Parse(autoUrl); err == nil {
 				if autoU.Scheme == "" {
@@ -299,13 +293,10 @@ func fetchFeed(c mpg.Context, origUrl, fetchUrl string) (*Feed, []*Story, error)
 				return fetchFeed(c, origUrl, autoUrl)
 			}
 		}
-		return ParseFeed(c, resp.Header.Get("Content-Type"), origUrl, fetchUrl, b)
-	} else if err != nil {
+		return ParseFeed(c, header.Get("Content-Type"), origUrl, fetchUrl, b)
+	} else {
 		log.Warningf(c, "fetch feed error: %v", err)
 		return nil, nil, fmt.Errorf("Could not fetch feed")
-	} else {
-		log.Warningf(c, "fetch feed error: status code: %s", resp.Status)
-		return nil, nil, fmt.Errorf("Bad response code from server")
 	}
 }
 

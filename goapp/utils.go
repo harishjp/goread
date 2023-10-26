@@ -47,18 +47,32 @@ import (
 	"google.golang.org/appengine/v2/log"
 	"google.golang.org/appengine/v2/memcache"
 	"google.golang.org/appengine/v2/taskqueue"
-	"google.golang.org/appengine/v2/urlfetch"
 	"google.golang.org/appengine/v2/user"
 )
 
-func createHttpClient(c context.Context, t time.Duration) (*http.Client, context.CancelFunc) {
-	c1, cf := context.WithTimeout(c, t)
-	cl := &http.Client{
-		Transport: &urlfetch.Transport{
-			Context: c1,
-		},
+func httpGet(ctx context.Context, url string) ([]byte, http.Header, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, nil, err
 	}
-	return cl, cf
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, nil, fmt.Errorf("status code: %s", resp.Status)
+	}
+	const sz = 1 << 21 // 2MB?
+	reader := &io.LimitedReader{R: resp.Body, N: sz}
+	data, err := ioutil.ReadAll(reader)
+	if err != nil {
+		return nil, nil, err
+	}
+	if reader.N == 0 {
+		return nil, nil, fmt.Errorf("httpGet: data larger than %d bytes", sz)
+	}
+	return data, resp.Header, err
 }
 
 func serveError(w http.ResponseWriter, err error) {
@@ -739,15 +753,10 @@ func loadImage(c context.Context, f *Feed) {
 	u.RawQuery = ""
 	u.Fragment = ""
 	p := "/favicon.ico"
-	client := urlfetch.Client(c)
-	if r, err := client.Get(u.String()); err == nil {
-		b, err := ioutil.ReadAll(r.Body)
-		r.Body.Close()
+	if b, _, err := httpGet(c, u.String()); err == nil {
+		i, err := FindIcon(b)
 		if err == nil {
-			i, err := FindIcon(b)
-			if err == nil {
-				p = i
-			}
+			p = i
 		}
 	}
 	u, err = u.Parse(p)
@@ -755,8 +764,7 @@ func loadImage(c context.Context, f *Feed) {
 		return
 	}
 	us := u.String()
-	r, err := client.Get(us)
-	if err != nil || r.StatusCode != http.StatusOK || r.ContentLength == 0 {
+	if _, _, err := httpGet(c, us); err == nil {
 		us = ""
 	}
 	f.Image = us
