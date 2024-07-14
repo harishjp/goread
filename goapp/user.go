@@ -35,15 +35,15 @@ import (
 
 	"golang.org/x/net/context"
 
-	"golang.org/x/net/html/charset"
-	mpg "github.com/harishjp/goread/miniprofiler_gae"
 	"github.com/harishjp/goread/goon"
+	"github.com/harishjp/goread/log"
+	mpg "github.com/harishjp/goread/miniprofiler_gae"
 	"github.com/harishjp/goread/sanitizer"
+	"golang.org/x/net/html/charset"
 
 	"google.golang.org/appengine/v2"
 	"google.golang.org/appengine/v2/blobstore"
 	"google.golang.org/appengine/v2/datastore"
-	"google.golang.org/appengine/v2/log"
 	"google.golang.org/appengine/v2/taskqueue"
 	"google.golang.org/appengine/v2/user"
 )

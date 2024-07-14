@@ -21,20 +21,19 @@ import (
 	"fmt"
 	"html/template"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/harishjp/goread/miniprofiler"
-	mpg "github.com/harishjp/goread/miniprofiler_gae"
 	"github.com/gorilla/mux"
 	"github.com/harishjp/goread/goon"
+	"github.com/harishjp/goread/log"
+	"github.com/harishjp/goread/miniprofiler"
+	mpg "github.com/harishjp/goread/miniprofiler_gae"
 
 	"golang.org/x/net/context"
 	"google.golang.org/appengine/v2/datastore"
-	alog "google.golang.org/appengine/v2/log"
 )
 
 var (
@@ -64,13 +63,12 @@ func init() {
 	miniprofiler.ToggleShortcut = "Alt+C"
 	miniprofiler.Position = "bottomleft"
 
-	router := mux.NewRouter()
-	RegisterHandlers(router)
+	router = mux.NewRouter()
+	RegisterHandlers()
 	http.Handle("/", router)
 }
 
-func RegisterHandlers(r *mux.Router) {
-	router = r
+func RegisterHandlers() {
 	router.Handle("/", mpg.NewHandler(Main)).Name("main")
 	router.Handle("/login/google", mpg.NewHandler(LoginGoogle)).Name("login-google")
 	router.Handle("/login/redirect", mpg.NewHandler(LoginRedirect))
@@ -156,10 +154,13 @@ func Main(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if mobile {
-		w.Write(mobileIndex)
+		_, err := w.Write(mobileIndex)
+		if err != nil {
+			log.Errorf(c, "error writing mobile index: %v", err)
+		}
 	} else {
 		if err := templates.ExecuteTemplate(w, "base.html", includes(c, w, r)); err != nil {
-			alog.Errorf(c, "%v", err)
+			log.Errorf(c, "error executing template: %v", err)
 			serveError(w, err)
 		}
 	}
@@ -168,7 +169,7 @@ func Main(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 func addFeed(c mpg.Context, userid string, outline *OpmlOutline) error {
 	gn := goon.FromContext(c)
 	o := outline.Outline[0]
-	alog.Infof(c, "adding feed %v to user %s", o.XmlUrl, userid)
+	log.Infof(c, "adding feed %v to user %s", o.XmlUrl, userid)
 	fu, ferr := url.Parse(o.XmlUrl)
 	if ferr != nil {
 		return ferr

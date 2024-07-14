@@ -32,14 +32,14 @@ import (
 
 	"golang.org/x/net/context"
 
-	"golang.org/x/net/html/charset"
-	mpg "github.com/harishjp/goread/miniprofiler_gae"
 	"github.com/harishjp/goread/goon"
+	"github.com/harishjp/goread/log"
+	mpg "github.com/harishjp/goread/miniprofiler_gae"
+	"golang.org/x/net/html/charset"
 
 	"google.golang.org/appengine/v2"
 	"google.golang.org/appengine/v2/blobstore"
 	"google.golang.org/appengine/v2/datastore"
-	"google.golang.org/appengine/v2/log"
 	"google.golang.org/appengine/v2/taskqueue"
 )
 
@@ -217,11 +217,11 @@ func SubscribeFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 			log.Errorf(c, "%s", resp.Body)
 		}
 		s += "resp err"
-	  resp.Body.Close()
+		resp.Body.Close()
 	} else {
 		log.Infof(c, "subscribed: %v", f.Url)
 		s += "success"
-	  resp.Body.Close()
+		resp.Body.Close()
 	}
 }
 

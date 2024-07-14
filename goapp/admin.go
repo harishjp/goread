@@ -25,11 +25,11 @@ import (
 	"time"
 
 	"google.golang.org/appengine/v2/datastore"
-	"google.golang.org/appengine/v2/log"
 	"google.golang.org/appengine/v2/memcache"
 
-	mpg "github.com/harishjp/goread/miniprofiler_gae"
 	"github.com/harishjp/goread/goon"
+	"github.com/harishjp/goread/log"
+	mpg "github.com/harishjp/goread/miniprofiler_gae"
 )
 
 func AllFeedsOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {

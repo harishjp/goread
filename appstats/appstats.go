@@ -25,9 +25,10 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/harishjp/goread/log"
+
 	"golang.org/x/net/context"
 	"google.golang.org/appengine/v2"
-	"google.golang.org/appengine/v2/log"
 	"google.golang.org/appengine/v2/memcache"
 	"google.golang.org/appengine/v2/user"
 )
