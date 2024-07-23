@@ -11,3 +11,8 @@ require (
 	google.golang.org/appengine/v2 v2.0.1
 	google.golang.org/protobuf v1.27.1
 )
+
+require (
+	github.com/golang/protobuf v1.5.0 // indirect
+	golang.org/x/sys v0.0.0-20210423082822-04245dca01da // indirect
+)

@@ -17,6 +17,7 @@
 package goon
 
 import (
+	"context"
 	"reflect"
 	"sync"
 	"testing"
@@ -25,7 +26,6 @@ import (
 	"google.golang.org/appengine/v2"
 	"google.golang.org/appengine/v2/aetest"
 	"google.golang.org/appengine/v2/datastore"
-	"google.golang.org/appengine/v2/memcache"
 )
 
 // *[]S, *[]*S, *[]I, []S, []*S, []I
@@ -154,7 +154,7 @@ type ivItemI interface {
 
 var ivItems []ivItem
 
-func initializeIvItems(c appengine.Context) {
+func initializeIvItems(c context.Context) {
 	t1 := time.Now().Truncate(time.Microsecond)
 	t2 := t1.Add(time.Second * 1)
 	t3 := t1.Add(time.Second * 2)
@@ -531,7 +531,7 @@ func ivWipe(t *testing.T, g *Goon, prettyInfo string) {
 
 	// Make sure the caches are clear, so any caching is done by our specific test
 	g.FlushLocalCache()
-	memcache.Flush(g.Context)
+	goonCache.Flush()
 }
 
 func ivGetMulti(t *testing.T, g *Goon, ref, dst interface{}, prettyInfo string) error {
@@ -595,7 +595,7 @@ func validateInputVariety(t *testing.T, g *Goon, srcType, dstType, mode int) {
 
 	// Clear the caches, as we're going to precisely set the caches via Get
 	g.FlushLocalCache()
-	memcache.Flush(g.Context)
+	goonCache.Flush()
 
 	// Set the caches into proper state based on given mode
 	switch mode {
@@ -666,12 +666,12 @@ func validateInputVarietyTXNPut(t *testing.T, g *Goon, srcType, dstType, mode in
 	switch mode {
 	case ivModeDatastore:
 		g.FlushLocalCache()
-		memcache.Flush(g.Context)
+		goonCache.Flush()
 	case ivModeLocalcache:
 		// Entities already in local cache
 	case ivModeLocalcacheAndDatastore:
 		g.FlushLocalCache()
-		memcache.Flush(g.Context)
+		goonCache.Flush()
 
 		subSrc := getInputVarietySrc(t, g, srcType, 0)
 
@@ -730,7 +730,7 @@ func validateInputVarietyTXNGet(t *testing.T, g *Goon, srcType, dstType, mode in
 	switch mode {
 	case ivModeDatastore:
 		g.FlushLocalCache()
-		memcache.Flush(g.Context)
+		goonCache.Flush()
 	}
 
 	// Get our data back and make sure it's correct
@@ -742,11 +742,11 @@ func validateInputVarietyTXNGet(t *testing.T, g *Goon, srcType, dstType, mode in
 }
 
 func TestInputVariety(t *testing.T) {
-	c, err := aetest.NewContext(nil)
+	c, closeFn, err := aetest.NewContext()
 	if err != nil {
 		t.Fatalf("Could not start aetest - %v", err)
 	}
-	defer c.Close()
+	defer closeFn()
 	g := FromContext(c)
 
 	initializeIvItems(c)
@@ -846,11 +846,11 @@ type MigrationB struct {
 }
 
 func TestMigration(t *testing.T) {
-	c, err := aetest.NewContext(nil)
+	c, closeFn, err := aetest.NewContext()
 	if err != nil {
 		t.Fatalf("Could not start aetest - %v", err)
 	}
-	defer c.Close()
+	defer closeFn()
 	g := FromContext(c)
 
 	// Create & save an entity with the original structure
@@ -882,7 +882,7 @@ func TestMigration(t *testing.T) {
 
 	// Clear all the caches
 	g.FlushLocalCache()
-	memcache.Flush(c)
+	goonCache.Flush()
 
 	// Test whether datastore supports migration
 	verifyMigration(t, g, migA, "DS")
@@ -956,11 +956,11 @@ func verifyMigration(t *testing.T, g *Goon, migA *MigrationA, debugInfo string) 
 }
 
 func TestTXNRace(t *testing.T) {
-	c, err := aetest.NewContext(nil)
+	c, closeFn, err := aetest.NewContext()
 	if err != nil {
 		t.Fatalf("Could not start aetest - %v", err)
 	}
-	defer c.Close()
+	defer closeFn()
 	g := FromContext(c)
 
 	// Create & store some test data
@@ -1054,11 +1054,11 @@ func TestTXNRace(t *testing.T) {
 }
 
 func TestNegativeCacheHit(t *testing.T) {
-	c, err := aetest.NewContext(nil)
+	c, closeFn, err := aetest.NewContext()
 	if err != nil {
 		t.Fatalf("Could not start aetest - %v", err)
 	}
-	defer c.Close()
+	defer closeFn()
 	g := FromContext(c)
 
 	hid := &HasId{Id: 1}
@@ -1079,11 +1079,11 @@ func TestNegativeCacheHit(t *testing.T) {
 }
 
 func TestCaches(t *testing.T) {
-	c, err := aetest.NewContext(nil)
+	c, closeFn, err := aetest.NewContext()
 	if err != nil {
 		t.Fatalf("Could not start aetest - %v", err)
 	}
-	defer c.Close()
+	defer closeFn()
 	g := FromContext(c)
 
 	// Put *struct{}
@@ -1138,17 +1138,12 @@ func TestCaches(t *testing.T) {
 }
 
 func TestGoon(t *testing.T) {
-	c, err := aetest.NewContext(nil)
+	c, closeFn, err := aetest.NewContext()
 	if err != nil {
 		t.Fatalf("Could not start aetest - %v", err)
 	}
-	defer c.Close()
+	defer closeFn()
 	n := FromContext(c)
-
-	// Don't want any of these tests to hit the timeout threshold on the devapp server
-	MemcacheGetTimeout = time.Second
-	MemcachePutTimeoutLarge = time.Second
-	MemcachePutTimeoutSmall = time.Second
 
 	// key tests
 	noid := NoId{}
@@ -1202,7 +1197,7 @@ func TestGoon(t *testing.T) {
 	// datastore tests
 	keys, _ := datastore.NewQuery("HasId").KeysOnly().GetAll(c, nil)
 	datastore.DeleteMulti(c, keys)
-	memcache.Flush(c)
+	goonCache.Flush()
 	if err := n.Get(&HasId{Id: 0}); err == nil {
 		t.Errorf("ds: expected error, we're fetching from the datastore on an incomplete key!")
 	}
@@ -1264,7 +1259,7 @@ func TestGoon(t *testing.T) {
 		t.Errorf("put: expected error")
 	}
 	// force partial fetch from memcache and then datastore
-	memcache.Flush(c)
+	goonCache.Flush()
 	if err := n.Get(nes[0]); err != nil {
 		t.Errorf("get: unexpected error")
 	}
@@ -1302,9 +1297,7 @@ func TestGoon(t *testing.T) {
 
 	hi4 := &HasId{Id: hi.Id}
 	delete(n.cache, memkey(n.Key(hi4)))
-	if memcache.Flush(n.Context) != nil {
-		t.Errorf("Unable to flush memcache")
-	}
+	goonCache.Flush()
 	if err := n.Get(hi4); err != nil {
 		t.Errorf("get: unexpected error - %v", err)
 	}
@@ -1749,75 +1742,15 @@ type PutGet struct {
 	Value int32
 }
 
-// Commenting out for issue https://code.google.com/p/googleappengine/issues/detail?id=10493
-//func TestMemcachePutTimeout(t *testing.T) {
-//	c, err := aetest.NewContext(nil)
-//	if err != nil {
-//		t.Fatalf("Could not start aetest - %v", err)
-//	}
-//	defer c.Close()
-//	g := FromContext(c)
-//	MemcachePutTimeoutSmall = time.Second
-//	// put a HasId resource, then test pulling it from memory, memcache, and datastore
-//	hi := &HasId{Name: "hasid"} // no id given, should be automatically created by the datastore
-//	if _, err := g.Put(hi); err != nil {
-//		t.Errorf("put: unexpected error - %v", err)
-//	}
-
-//	MemcachePutTimeoutSmall = 0
-//	MemcacheGetTimeout = 0
-//	if err := g.putMemcache([]interface{}{hi}); !appengine.IsTimeoutError(err) {
-//		t.Errorf("Request should timeout - err = %v", err)
-//	}
-//	MemcachePutTimeoutSmall = time.Second
-//	MemcachePutTimeoutThreshold = 0
-//	MemcachePutTimeoutLarge = 0
-//	if err := g.putMemcache([]interface{}{hi}); !appengine.IsTimeoutError(err) {
-//		t.Errorf("Request should timeout - err = %v", err)
-//	}
-
-//	MemcachePutTimeoutLarge = time.Second
-//	if err := g.putMemcache([]interface{}{hi}); err != nil {
-//		t.Errorf("putMemcache: unexpected error - %v", err)
-//	}
-
-//	g.FlushLocalCache()
-//	memcache.Flush(c)
-//	// time out Get
-//	MemcacheGetTimeout = 0
-//	// time out Put too
-//	MemcachePutTimeoutSmall = 0
-//	MemcachePutTimeoutThreshold = 0
-//	MemcachePutTimeoutLarge = 0
-//	hiResult := &HasId{Id: hi.Id}
-//	if err := g.Get(hiResult); err != nil {
-//		t.Errorf("Request should not timeout cause we'll fetch from the datastore but got error  %v", err)
-//		// Put timing out should also error, but it won't be returned here, just logged
-//	}
-//	if !reflect.DeepEqual(hi, hiResult) {
-//		t.Errorf("Fetched object isn't accurate - want %v, fetched %v", hi, hiResult)
-//	}
-
-//	hiResult = &HasId{Id: hi.Id}
-//	g.FlushLocalCache()
-//	MemcacheGetTimeout = time.Second
-//	if err := g.Get(hiResult); err != nil {
-//		t.Errorf("Request should not timeout cause we'll fetch from memcache successfully but got error %v", err)
-//	}
-//	if !reflect.DeepEqual(hi, hiResult) {
-//		t.Errorf("Fetched object isn't accurate - want %v, fetched %v", hi, hiResult)
-//	}
-//}
-
 // This test won't fail but if run with -race flag, it will show known race conditions
 // Using multiple goroutines per http request is recommended here:
 // http://talks.golang.org/2013/highperf.slide#22
 func TestRace(t *testing.T) {
-	c, err := aetest.NewContext(nil)
+	c, closeFn, err := aetest.NewContext()
 	if err != nil {
 		t.Fatalf("Could not start aetest - %v", err)
 	}
-	defer c.Close()
+	defer closeFn()
 	g := FromContext(c)
 
 	var hasIdSlice []*HasId
@@ -1864,11 +1797,11 @@ func TestRace(t *testing.T) {
 }
 
 func TestPutGet(t *testing.T) {
-	c, err := aetest.NewContext(nil)
+	c, closeFn, err := aetest.NewContext()
 	if err != nil {
 		t.Fatalf("Could not start aetest - %v", err)
 	}
-	defer c.Close()
+	defer closeFn()
 	g := FromContext(c)
 
 	key, err := g.Put(&PutGet{ID: 12, Value: 15})
@@ -1911,12 +1844,17 @@ func prefixKindName(src interface{}) string {
 }
 
 func TestCustomKindName(t *testing.T) {
-	opts := &aetest.Options{StronglyConsistentDatastore: true}
-	c, err := aetest.NewContext(opts)
+	instance, err := aetest.NewInstance(&aetest.Options{StronglyConsistentDatastore: true})
 	if err != nil {
 		t.Fatalf("Could not start aetest - %v", err)
 	}
-	defer c.Close()
+	defer func() { _ = instance.Close() }()
+	req, err := instance.NewRequest("GET", "/", nil)
+	if err != nil {
+		t.Fatalf("Could not start aetest - %v", err)
+	}
+	c := appengine.NewContext(req)
+
 	g := FromContext(c)
 
 	hi := HasId{Name: "Foo"}
@@ -1952,16 +1890,16 @@ func TestCustomKindName(t *testing.T) {
 }
 
 func TestMultis(t *testing.T) {
-	c, err := aetest.NewContext(nil)
+	c, closeFn, err := aetest.NewContext()
 	if err != nil {
 		t.Fatalf("Could not start aetest - %v", err)
 	}
-	defer c.Close()
+	defer closeFn()
 	n := FromContext(c)
 
 	testAmounts := []int{1, 999, 1000, 1001, 1999, 2000, 2001, 2510}
 	for _, x := range testAmounts {
-		memcache.Flush(c)
+		goonCache.Flush()
 		objects := make([]*HasId, x)
 		for y := 0; y < x; y++ {
 			objects[y] = &HasId{Id: int64(y + 1)}
@@ -1977,7 +1915,7 @@ func TestMultis(t *testing.T) {
 
 	// do it again, but only write numbers divisible by 100
 	for _, x := range testAmounts {
-		memcache.Flush(c)
+		goonCache.Flush()
 		getobjects := make([]*HasId, 0, x)
 		putobjects := make([]*HasId, 0, x/100+1)
 		keys := make([]*datastore.Key, x)
@@ -2044,11 +1982,11 @@ type derivedChild struct {
 }
 
 func TestParents(t *testing.T) {
-	c, err := aetest.NewContext(nil)
+	c, closeFn, err := aetest.NewContext()
 	if err != nil {
 		t.Fatalf("Could not start aetest - %v", err)
 	}
-	defer c.Close()
+	defer closeFn()
 	n := FromContext(c)
 
 	r := &root{1, 10}

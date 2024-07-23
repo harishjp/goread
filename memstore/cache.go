@@ -81,3 +81,25 @@ func (c *Cache) removeExtra() {
 	delete(c.cache, en.key)
 	c.entries.Remove(el)
 }
+
+func (c *Cache) Remove(keys []string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	for _, key := range keys {
+		if el, ok := c.cache[key]; ok {
+			if c.curr != nil && c.curr.Value.(*entry).key == key {
+				c.curr = el.Prev()
+			}
+			delete(c.cache, key)
+			c.entries.Remove(el)
+		}
+	}
+}
+
+func (c *Cache) Flush() {
+	c.lock.Lock()
+	c.cache = make(map[string]*list.Element)
+	c.entries = list.New()
+	c.curr = nil
+	c.lock.Unlock()
+}
