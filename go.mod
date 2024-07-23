@@ -1,6 +1,6 @@
 module github.com/harishjp/goread
 
-go 1.16
+go 1.22
 
 require (
 	github.com/andyfusniak/stackdriver-gae-logrus-plugin v0.1.3
