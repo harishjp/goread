@@ -17,8 +17,6 @@
 package appstats
 
 import (
-	"bytes"
-	"encoding/gob"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -26,10 +24,10 @@ import (
 	"time"
 
 	"github.com/harishjp/goread/log"
+	"github.com/harishjp/goread/memstore"
 
 	"golang.org/x/net/context"
 	"google.golang.org/appengine/v2"
-	"google.golang.org/appengine/v2/memcache"
 	"google.golang.org/appengine/v2/user"
 )
 
@@ -77,43 +75,6 @@ type Context struct {
 	stats  *requestStats
 }
 
-// Call times an context.Context Call. Internal use only.
-/*
-func (c Context) Call(service, method string, in, out internal.Proto.Message) error {
-	c.stats.wg.Add(1)
-	defer c.stats.wg.Done()
-
-	if service == "__go__" {
-		return c.Context.Call(service, method, in, out)
-	}
-
-	stat := rpcStat{
-		Service:   service,
-		Method:    method,
-		Start:     time.Now(),
-		Offset:    time.Since(c.stats.Start),
-		StackData: string(debug.Stack()),
-	}
-	err := c.Context.Call(service, method, in, out)
-	stat.Duration = time.Since(stat.Start)
-	stat.In = in.String()
-	stat.Out = out.String()
-	stat.Cost = getCost(out)
-
-	if len(stat.In) > ProtoMaxBytes {
-		stat.In = stat.In[:ProtoMaxBytes] + "..."
-	}
-	if len(stat.Out) > ProtoMaxBytes {
-		stat.Out = stat.Out[:ProtoMaxBytes] + "..."
-	}
-
-	c.stats.lock.Lock()
-	c.stats.RPCStats = append(c.stats.RPCStats, stat)
-	c.stats.Cost += stat.Cost
-	c.stats.lock.Unlock()
-	return err
-}*/
-
 // NewContext creates a new timing-aware context from req.
 func NewContext(req *http.Request) Context {
 	c := appengine.NewContext(req)
@@ -137,82 +98,27 @@ func NewContext(req *http.Request) Context {
 	}
 }
 
-// WithContext enables profiling of functions without a corresponding request,
-// as in the appengine/delay package. method and path may be empty.
-func WithContext(context context.Context, method, path string, f func(Context)) {
-	var uname string
-	var admin bool
-	if u := user.Current(context); u != nil {
-		uname = u.String()
-		admin = u.Admin
-	}
-	c := Context{
-		Context: context,
-		stats: &requestStats{
-			User:   uname,
-			Admin:  admin,
-			Method: method,
-			Path:   path,
-			Start:  time.Now(),
-		},
-	}
-	f(c)
-	c.save()
-}
-
-const bufMaxLen = 1000000
+var fullStatsCache = memstore.NewCache(1000)
+var partStatsBuffer = memstore.NewCyclicBuffer[*requestStats](modulus)
 
 func (c Context) save() {
-	c.stats.wg.Wait()
 	c.stats.Duration = time.Since(c.stats.Start)
 
-	var buf_part, buf_full bytes.Buffer
-	full := stats_full{
+	full := statsFull{
 		Header: c.header,
 		Stats:  c.stats,
 	}
-	if err := gob.NewEncoder(&buf_full).Encode(&full); err != nil {
-		log.Errorf(c.Context, "appstats Save error: %v", err)
-		return
-	} else if buf_full.Len() > bufMaxLen {
-		// first try clearing stack traces
-		for i := range full.Stats.RPCStats {
-			full.Stats.RPCStats[i].StackData = ""
-		}
-		buf_full.Truncate(0)
-		gob.NewEncoder(&buf_full).Encode(&full)
-	}
-	part := stats_part(*c.stats)
+	fullKey := c.stats.FullKey()
+	fullStatsCache.Add(fullKey, full)
+	log.Infof(c.Context, "Saved full stats: %s, link: %v", fullKey, c.URL())
+
+	part := *c.stats
 	for i := range part.RPCStats {
 		part.RPCStats[i].StackData = ""
 		part.RPCStats[i].In = ""
 		part.RPCStats[i].Out = ""
 	}
-	if err := gob.NewEncoder(&buf_part).Encode(&part); err != nil {
-		log.Errorf(c.Context, "appstats Save error: %v", err)
-		return
-	}
-
-	item_part := &memcache.Item{
-		Key:   c.stats.PartKey(),
-		Value: buf_part.Bytes(),
-	}
-
-	item_full := &memcache.Item{
-		Key:   c.stats.FullKey(),
-		Value: buf_full.Bytes(),
-	}
-
-	log.Infof(c.Context, "Saved; %s: %s, %s: %s, link: %v",
-		item_part.Key,
-		byteSize(len(item_part.Value)),
-		item_full.Key,
-		byteSize(len(item_full.Value)),
-		c.URL(),
-	)
-
-	nc := c.storeContext()
-	memcache.SetMulti(nc, []*memcache.Item{item_part, item_full})
+	partStatsBuffer.Add(&part)
 }
 
 // URL returns the appstats URL for the current request.

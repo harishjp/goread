@@ -22,7 +22,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -44,14 +43,9 @@ type requestStats struct {
 	Start       time.Time
 	Duration    time.Duration
 	RPCStats    []rpcStat
-
-	lock sync.Mutex
-	wg   sync.WaitGroup
 }
 
-type stats_part requestStats
-
-type stats_full struct {
+type statsFull struct {
 	Header http.Header
 	Stats  *requestStats
 }

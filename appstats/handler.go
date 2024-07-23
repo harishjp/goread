@@ -17,8 +17,6 @@
 package appstats
 
 import (
-	"bytes"
-	"encoding/gob"
 	"fmt"
 	"html/template"
 	"io/ioutil"
@@ -29,7 +27,6 @@ import (
 	"time"
 
 	"google.golang.org/appengine/v2"
-	"google.golang.org/appengine/v2/memcache"
 	"google.golang.org/appengine/v2/user"
 )
 
@@ -86,27 +83,8 @@ func appstatsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func index(w http.ResponseWriter, r *http.Request) {
-	keys := make([]string, modulus)
-	for i := range keys {
-		keys[i] = fmt.Sprintf(keyPart, i*distance)
-	}
-
 	c := _context(r)
-	items, err := memcache.GetMulti(c, keys)
-	if err != nil {
-		return
-	}
-
-	ars := allrequestStats{}
-	for _, v := range items {
-		t := stats_part{}
-		err := gob.NewDecoder(bytes.NewBuffer(v.Value)).Decode(&t)
-		if err != nil {
-			continue
-		}
-		r := requestStats(t)
-		ars = append(ars, &r)
-	}
+	ars := allrequestStats(partStatsBuffer.Items())
 	sort.Sort(reverse{ars})
 
 	requestById := make(map[int]*requestStats, len(ars))
@@ -252,18 +230,13 @@ func details(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	item, err := memcache.Get(c, key)
-	if err != nil {
+	item, ok := fullStatsCache.Get(key)
+	if !ok {
 		templates.ExecuteTemplate(w, "details", v)
 		return
 	}
 
-	full := stats_full{}
-	err = gob.NewDecoder(bytes.NewBuffer(item.Value)).Decode(&full)
-	if err != nil {
-		templates.ExecuteTemplate(w, "details", v)
-		return
-	}
+	full := item.(statsFull)
 
 	byCount := make(map[string]cVal)
 	durationCount := make(map[string]time.Duration)
