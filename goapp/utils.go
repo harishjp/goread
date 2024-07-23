@@ -34,6 +34,7 @@ import (
 	"github.com/harishjp/goread/atom"
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
+	"github.com/harishjp/goread/memstore"
 	mpg "github.com/harishjp/goread/miniprofiler_gae"
 	"github.com/harishjp/goread/rdf"
 	"github.com/harishjp/goread/rss"
@@ -45,7 +46,6 @@ import (
 
 	"golang.org/x/net/context"
 	"google.golang.org/appengine/v2"
-	"google.golang.org/appengine/v2/memcache"
 	"google.golang.org/appengine/v2/taskqueue"
 	"google.golang.org/appengine/v2/user"
 )
@@ -358,9 +358,13 @@ var dateFormats = []string{
 	"Updated January 2, 2006",
 }
 
-const dateFormatCount = 500
+type df struct {
+	URL, Format string
+}
 
-func parseDate(c context.Context, feed *Feed, ds ...string) (t time.Time, err error) {
+var invalidDateBuffer = memstore.NewCyclicBuffer[df](500)
+
+func parseDate(_ context.Context, feed *Feed, ds ...string) (t time.Time, err error) {
 	for _, d := range ds {
 		d = strings.TrimSpace(d)
 		if d == "" {
@@ -371,11 +375,7 @@ func parseDate(c context.Context, feed *Feed, ds ...string) (t time.Time, err er
 				return
 			}
 		}
-		df := memcache.Item{
-			Key:   fmt.Sprintf("_dateformat-%v", rand.Int63n(dateFormatCount)),
-			Value: []byte(fmt.Sprintf("%v|%v", d, feed.Url)),
-		}
-		memcache.Add(c, &df)
+		invalidDateBuffer.Add(df{feed.Url, d})
 	}
 	err = fmt.Errorf("could not parse date: %v", strings.Join(ds, ", "))
 	return

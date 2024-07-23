@@ -21,15 +21,12 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
-
-	"google.golang.org/appengine/v2/datastore"
-	"google.golang.org/appengine/v2/memcache"
 
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
 	mpg "github.com/harishjp/goread/miniprofiler_gae"
+	"google.golang.org/appengine/v2/datastore"
 )
 
 func AllFeedsOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
@@ -125,19 +122,10 @@ func AdminSubHub(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "subscribed")
 }
 
-func AdminDateFormats(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	type df struct {
-		URL, Format string
-	}
-	keys := make([]string, dateFormatCount)
-	for i := range keys {
-		keys[i] = fmt.Sprintf("_dateformat-%v", i)
-	}
-	items, _ := memcache.GetMulti(c, keys)
+func AdminDateFormats(_ mpg.Context, w http.ResponseWriter, _ *http.Request) {
 	dfs := make(map[string]df)
-	for k, v := range items {
-		sp := strings.Split(string(v.Value), "|")
-		dfs[k] = df{sp[1], sp[0]}
+	for i, v := range invalidDateBuffer.Items() {
+		dfs[fmt.Sprintf("_dateformat-%v", i)] = v
 	}
 	if err := templates.ExecuteTemplate(w, "admin-date-formats.html", dfs); err != nil {
 		serveError(w, err)
