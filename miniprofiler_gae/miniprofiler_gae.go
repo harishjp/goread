@@ -17,66 +17,33 @@
 package miniprofiler_gae
 
 import (
-	"fmt"
 	"net/http"
 
-	"golang.org/x/net/context"
-	"google.golang.org/appengine/v2"
-	"google.golang.org/appengine/v2/memcache"
-	"google.golang.org/appengine/v2/user"
-	"github.com/harishjp/goread/miniprofiler"
 	"github.com/harishjp/goread/appstats"
+	"github.com/harishjp/goread/memstore"
+	"github.com/harishjp/goread/miniprofiler"
+	"golang.org/x/net/context"
 )
 
 func init() {
-	miniprofiler.Enable = EnableIfAdminOrDev
-	miniprofiler.Get = GetMemcache
-	miniprofiler.Store = StoreMemcache
-	miniprofiler.MachineName = Instance
+	miniprofiler.Get = getCache
+	miniprofiler.Store = storeCache
 }
 
-// EnableIfAdminOrDev returns true if this is the dev server or the current
-// user is an admin. This is the default for miniprofiler.Enable.
-func EnableIfAdminOrDev(r *http.Request) bool {
-	if appengine.IsDevAppServer() {
-		return true
-	}
-	c := appengine.NewContext(r)
-	if u := user.Current(c); u != nil {
-		return u.Admin
-	}
-	return false
+var cache = memstore.NewCache(100)
+
+// storeCache stores the Profile in cache.
+func storeCache(_ *http.Request, p *miniprofiler.Profile) {
+	cache.Add(p.Id, p)
 }
 
-// Instance returns the app engine instance id, or the hostname on dev.
-// This is the default for miniprofiler.MachineName.
-func Instance() string {
-	if i := appengine.InstanceID(); i != "" && !appengine.IsDevAppServer() {
-		return i[len(i)-8:]
+// getCache gets the Profile from cache.
+func getCache(_ *http.Request, id string) *miniprofiler.Profile {
+	profile, ok := cache.Get(id)
+	if ok {
+		return profile.(*miniprofiler.Profile)
 	}
-	return miniprofiler.Hostname()
-}
-
-// StoreMemcache stores the Profile in memcache. This is the default for
-// miniprofiler.Store.
-func StoreMemcache(r *http.Request, p *miniprofiler.Profile) {
-	item := &memcache.Item{
-		Key:   mp_key(string(p.Id)),
-		Value: p.Json(),
-	}
-	c := appengine.NewContext(r)
-	memcache.Set(c, item)
-}
-
-// GetMemcache gets the Profile from memcache. This is the default for
-// miniprofiler.Get.
-func GetMemcache(r *http.Request, id string) *miniprofiler.Profile {
-	c := appengine.NewContext(r)
-	item, err := memcache.Get(c, mp_key(id))
-	if err != nil {
-		return nil
-	}
-	return miniprofiler.ProfileFromJson(item.Value)
+	return nil
 }
 
 type Context struct {
@@ -123,8 +90,4 @@ func NewHandler(f func(Context, http.ResponseWriter, *http.Request)) http.Handle
 		})
 		h.ServeHTTP(w, r)
 	})
-}
-
-func mp_key(id string) string {
-	return fmt.Sprintf("mini-profiler-results:%s", id)
 }
