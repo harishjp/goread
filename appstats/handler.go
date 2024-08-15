@@ -56,7 +56,7 @@ func serveError(w http.ResponseWriter, err error) {
 }
 
 func appstatsHandler(w http.ResponseWriter, r *http.Request) {
-	c := appengine.NewContext(r)
+	c := r.Context()
 	if appengine.IsDevAppServer() {
 		// noop
 	} else if u := user.Current(c); u == nil {
@@ -83,7 +83,6 @@ func appstatsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func index(w http.ResponseWriter, r *http.Request) {
-	c := _context(r)
 	ars := allrequestStats(partStatsBuffer.Items())
 	sort.Sort(reverse{ars})
 
@@ -201,7 +200,7 @@ func index(w http.ResponseWriter, r *http.Request) {
 		PathStatsByCount    statsByName
 	}{
 		Env: map[string]string{
-			"APPLICATION_ID": appengine.AppID(c),
+			"APPLICATION_ID": appengine.AppID(r.Context()),
 		},
 		Requests:         requests,
 		AllStatsByCount:  allStatsByCount,
@@ -216,8 +215,6 @@ func details(w http.ResponseWriter, r *http.Request) {
 	qtime := roundTime(i)
 	key := fmt.Sprintf(keyFull, qtime)
 
-	c := _context(r)
-
 	v := struct {
 		Env             map[string]string
 		Record          *requestStats
@@ -226,7 +223,7 @@ func details(w http.ResponseWriter, r *http.Request) {
 		Real            time.Duration
 	}{
 		Env: map[string]string{
-			"APPLICATION_ID": appengine.AppID(c),
+			"APPLICATION_ID": appengine.AppID(r.Context()),
 		},
 	}
 
@@ -279,7 +276,6 @@ func file(w http.ResponseWriter, r *http.Request) {
 	fname := r.URL.Query().Get("f")
 	n := r.URL.Query().Get("n")
 	lineno, _ := strconv.Atoi(n)
-	c := _context(r)
 
 	f, err := ioutil.ReadFile(fname)
 	if err != nil {
@@ -299,7 +295,7 @@ func file(w http.ResponseWriter, r *http.Request) {
 		Fp       map[int]string
 	}{
 		Env: map[string]string{
-			"APPLICATION_ID": appengine.AppID(c),
+			"APPLICATION_ID": appengine.AppID(r.Context()),
 		},
 		Filename: fname,
 		Lineno:   lineno,

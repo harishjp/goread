@@ -1853,7 +1853,7 @@ func TestCustomKindName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Could not start aetest - %v", err)
 	}
-	c := appengine.NewContext(req)
+	c := req.Context()
 
 	g := FromContext(c)
 

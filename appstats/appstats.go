@@ -27,25 +27,17 @@ import (
 	"github.com/harishjp/goread/memstore"
 
 	"golang.org/x/net/context"
-	"google.golang.org/appengine/v2"
 	"google.golang.org/appengine/v2/user"
 )
 
 var (
 	// RecordFraction is the fraction of requests to record.
 	// Set to a number between 0.0 (none) and 1.0 (all).
-	RecordFraction float64 = 1.0
+	RecordFraction = 1.0
 
 	// ShouldRecord is the function used to determine if recording will occur
 	// for a given request. The default is to use RecordFraction.
 	ShouldRecord = DefaultShouldRecord
-
-	// ProtoMaxBytes is the amount of protobuf data to record.
-	// Data after this is truncated.
-	ProtoMaxBytes = 150
-
-	// Namespace is the memcache namespace under which to store appstats data.
-	Namespace = "__appstats__"
 )
 
 const (
@@ -77,7 +69,7 @@ type Context struct {
 
 // NewContext creates a new timing-aware context from req.
 func NewContext(req *http.Request) Context {
-	c := appengine.NewContext(req)
+	c := req.Context()
 	var uname string
 	var admin bool
 	if u := user.Current(c); u != nil {
@@ -128,17 +120,6 @@ func (c Context) URL() string {
 		RawQuery: fmt.Sprintf("time=%v", c.stats.Start.Nanosecond()),
 	}
 	return u.String()
-}
-
-func (c Context) storeContext() context.Context {
-	nc, _ := appengine.Namespace(c.Context, Namespace)
-	return nc
-}
-
-func _context(r *http.Request) context.Context {
-	c := appengine.NewContext(r)
-	nc, _ := appengine.Namespace(c, Namespace)
-	return nc
 }
 
 // handler is an http.Handler that records RPC statistics.
@@ -194,7 +175,6 @@ func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.f(c, rw, r)
 		c.save()
 	} else {
-		c := appengine.NewContext(r)
-		h.f(c, w, r)
+		h.f(r.Context(), w, r)
 	}
 }
