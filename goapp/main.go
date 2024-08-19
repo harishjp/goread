@@ -32,8 +32,8 @@ import (
 	"github.com/harishjp/goread/miniprofiler"
 	mpg "github.com/harishjp/goread/miniprofiler_gae"
 
+	"cloud.google.com/go/datastore"
 	"golang.org/x/net/context"
-	"google.golang.org/appengine/v2/datastore"
 )
 
 var (
@@ -64,8 +64,21 @@ func init() {
 	miniprofiler.Position = "bottomleft"
 
 	router = mux.NewRouter()
+	RegisterDatastoreClient()
 	RegisterHandlers()
 	http.Handle("/", router)
+}
+
+func RegisterDatastoreClient() {
+	client, err := datastore.NewClient(context.Background(), datastore.DetectProjectID)
+	if err != nil {
+		log.Fatal(err)
+	}
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(goon.ContextWithClient(r.Context(), client)))
+		})
+	})
 }
 
 func RegisterHandlers() {

@@ -28,9 +28,9 @@ import (
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
 
+	"cloud.google.com/go/datastore"
 	"golang.org/x/net/context"
 	"google.golang.org/appengine/v2"
-	"google.golang.org/appengine/v2/datastore"
 	"google.golang.org/appengine/v2/taskqueue"
 	"google.golang.org/appengine/v2/user"
 )
@@ -108,13 +108,13 @@ func starKey(c context.Context, feed, story string) *UserStar {
 	u := User{Id: cu.ID}
 	uk := gn.Key(&u)
 	return &UserStar{
-		Parent: datastore.NewKey(c, "USF", feed, 0, uk),
+		Parent: datastore.NameKey("USF", feed, uk),
 		Id:     story,
 	}
 }
 
 func starID(key *datastore.Key) string {
-	return fmt.Sprintf("%s|%s", key.Parent().StringID(), key.StringID())
+	return fmt.Sprintf("%s|%s", key.Parent.Name, key.Name)
 }
 
 type readStory struct {

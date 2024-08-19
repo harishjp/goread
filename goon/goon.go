@@ -18,6 +18,7 @@ package goon
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -29,30 +30,39 @@ import (
 
 	"golang.org/x/net/context"
 
-	"google.golang.org/appengine/v2"
-	"google.golang.org/appengine/v2/datastore"
+	"cloud.google.com/go/datastore"
 )
 
-var (
-	// LogErrors issues context.Context.Errorf on any error.
-	LogErrors = true
+// This is global cache to replace memcache.
+var goonCache = memstore.NewCache(2000)
 
-	// This is global cache to replace memcache.
-	goonCache = memstore.NewCache(2000)
-)
+type pendingPut struct {
+	key   *datastore.PendingKey
+	value any
+}
+
+type TxInfo struct {
+	tx         *datastore.Transaction
+	toSet      []pendingPut
+	toDelete   map[string]bool
+	toDeleteMC []string
+}
+
+// KindNameResolver takes an Entity and returns what the Kind should be for
+// Datastore.
+type KindNameResolver func(src interface{}) string
 
 // Goon holds the app engine context and the request memory cache.
 type Goon struct {
-	Context       context.Context
-	cache         map[string]interface{}
-	cacheLock     sync.RWMutex // protect the cache from concurrent goroutines to speed up RPC access
-	inTransaction bool
-	toSet         map[string]interface{}
-	toDelete      map[string]bool
-	toDeleteMC    []string
+	Context   context.Context
+	client    *datastore.Client
+	cache     map[string]interface{}
+	cacheLock sync.RWMutex // protect the cache from concurrent goroutines to speed up RPC access
 	// KindNameResolver is used to determine what Kind to give an Entity.
 	// Defaults to DefaultKindName
 	KindNameResolver KindNameResolver
+
+	txInfo *TxInfo
 }
 
 func memkey(k *datastore.Key) string {
@@ -60,20 +70,28 @@ func memkey(k *datastore.Key) string {
 	return "g2:" + k.Encode()
 }
 
+var clientKey = struct{}{}
+
+func ContextWithClient(ctx context.Context, client *datastore.Client) context.Context {
+	return context.WithValue(ctx, clientKey, client)
+}
+
 // FromContext creates a new Goon object from the given context Context.
 // Useful with profiling packages like appstats.
 func FromContext(c context.Context) *Goon {
+	client, ok := c.Value(clientKey).(*datastore.Client)
+	if !ok {
+		panic("client not found in context")
+	}
 	return &Goon{
 		Context:          c,
+		client:           client,
 		cache:            make(map[string]interface{}),
 		KindNameResolver: DefaultKindName,
 	}
 }
 
 func (g *Goon) error(err error) {
-	if !LogErrors {
-		return
-	}
 	_, filename, line, ok := runtime.Caller(1)
 	if ok {
 		log.Errorf(g.Context, "goon - %s:%d - %v", filepath.Base(filename), line, err)
@@ -118,7 +136,7 @@ func (g *Goon) Key(src interface{}) *datastore.Key {
 // Kind returns src's datastore Kind or "" on error.
 func (g *Goon) Kind(src interface{}) string {
 	if k, err := g.KeyError(src); err == nil {
-		return k.Kind()
+		return k.Kind
 	}
 	return ""
 }
@@ -135,30 +153,36 @@ func (g *Goon) KeyError(src interface{}) (*datastore.Key, error) {
 //
 // Otherwise similar to appengine/datastore.RunInTransaction:
 // https://developers.google.com/appengine/docs/go/datastore/reference#RunInTransaction
-func (g *Goon) RunInTransaction(f func(tg *Goon) error, opts *datastore.TransactionOptions) error {
-	var ng *Goon
-	err := datastore.RunInTransaction(g.Context, func(tc context.Context) error {
-		ng = &Goon{
-			Context:          tc,
-			inTransaction:    true,
-			toSet:            make(map[string]interface{}),
-			toDelete:         make(map[string]bool),
-			toDeleteMC:       nil,
+func (g *Goon) RunInTransaction(f func(g *Goon) error, opts ...datastore.TransactionOption) error {
+	txInfo := TxInfo{
+		toSet:      nil,
+		toDelete:   make(map[string]bool),
+		toDeleteMC: nil,
+	}
+	commit, err := g.client.RunInTransaction(g.Context, func(tx *datastore.Transaction) error {
+		txInfo.tx = tx
+		return f(&Goon{
+			Context:          g.Context,
+			client:           g.client,
 			KindNameResolver: g.KindNameResolver,
-		}
-		return f(ng)
-	}, opts)
+			txInfo:           &txInfo,
+		})
+	}, opts...)
 
 	if err == nil {
-		goonCache.Remove(ng.toDeleteMC)
+		goonCache.Remove(txInfo.toDeleteMC)
 
 		g.cacheLock.Lock()
 		defer g.cacheLock.Unlock()
-		for k, v := range ng.toSet {
-			g.cache[k] = v
+		for _, p := range txInfo.toSet {
+			key := commit.Key(p.key)
+			if g.setStructKey(p.value, key) != nil {
+				mk := memkey(key)
+				g.cache[mk] = p.value
+			}
 		}
 
-		for k := range ng.toDelete {
+		for k := range txInfo.toDelete {
 			delete(g.cache, k)
 		}
 	} else {
@@ -174,7 +198,8 @@ func (g *Goon) RunInTransaction(f func(tg *Goon) error, opts *datastore.Transact
 func (g *Goon) Put(src interface{}) (*datastore.Key, error) {
 	ks, err := g.PutMulti([]interface{}{src})
 	if err != nil {
-		if me, ok := err.(appengine.MultiError); ok {
+		var me datastore.MultiError
+		if errors.As(err, &me) {
 			return nil, me[0]
 		}
 		return nil, err
@@ -204,14 +229,14 @@ func (g *Goon) PutMulti(src interface{}) ([]*datastore.Key, error) {
 	// cache needs to be updated after the datastore to prevent a common race condition,
 	// where a concurrent request will fetch the not-yet-updated data from the datastore
 	// and populate cache with it.
-	if g.inTransaction {
-		g.toDeleteMC = append(g.toDeleteMC, memkeys...)
+	if g.txInfo != nil {
+		g.txInfo.toDeleteMC = append(g.txInfo.toDeleteMC, memkeys...)
 	} else {
 		defer goonCache.Remove(memkeys)
 	}
 
 	v := reflect.Indirect(reflect.ValueOf(src))
-	multiErr, anyErr := make(appengine.MultiError, len(keys)), false
+	multiErr, anyErr := make(datastore.MultiError, len(keys)), false
 	goroutines := (len(keys)-1)/putMultiLimit + 1
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
@@ -223,11 +248,20 @@ func (g *Goon) PutMulti(src interface{}) ([]*datastore.Key, error) {
 			if hi > len(keys) {
 				hi = len(keys)
 			}
-			rkeys, pmerr := datastore.PutMulti(g.Context, keys[lo:hi], v.Slice(lo, hi).Interface())
+
+			var pmerr error
+			var pendingKeys []*datastore.PendingKey
+			var rkeys []*datastore.Key
+			if g.txInfo != nil {
+				pendingKeys, pmerr = g.txInfo.tx.PutMulti(keys[lo:hi], v.Slice(lo, hi).Interface())
+			} else {
+				rkeys, pmerr = g.client.PutMulti(g.Context, keys[lo:hi], v.Slice(lo, hi).Interface())
+			}
+
 			if pmerr != nil {
 				anyErr = true // this flag tells PutMulti to return multiErr later
-				merr, ok := pmerr.(appengine.MultiError)
-				if !ok {
+				var merr datastore.MultiError
+				if !errors.As(pmerr, &merr) {
 					g.error(pmerr)
 					for j := lo; j < hi; j++ {
 						multiErr[j] = pmerr
@@ -237,20 +271,30 @@ func (g *Goon) PutMulti(src interface{}) ([]*datastore.Key, error) {
 				copy(multiErr[lo:hi], merr)
 			}
 
-			for i, key := range keys[lo:hi] {
-				if multiErr[lo+i] != nil {
-					continue // there was an error writing this value, go to next
+			if g.txInfo != nil {
+				for i, key := range pendingKeys[lo:hi] {
+					if multiErr[lo+i] != nil {
+						continue // there was an error writing this value, go to next
+					}
+					vi := v.Index(lo + i).Interface()
+					g.txInfo.toSet = append(g.txInfo.toSet, pendingPut{
+						key:   key,
+						value: vi,
+					})
 				}
-				vi := v.Index(lo + i).Interface()
-				if key.Incomplete() {
-					g.setStructKey(vi, rkeys[i])
-					keys[i] = rkeys[i]
-				}
-				if g.inTransaction {
-					mk := memkey(rkeys[i])
-					delete(g.toDelete, mk)
-					g.toSet[mk] = vi
-				} else {
+			} else {
+				for i, key := range keys[lo:hi] {
+					if multiErr[lo+i] != nil {
+						continue // there was an error writing this value, go to next
+					}
+					vi := v.Index(lo + i).Interface()
+					if key.Incomplete() {
+						err = g.setStructKey(vi, rkeys[i])
+						keys[i] = rkeys[i]
+						if err != nil {
+							continue
+						}
+					}
 					g.putMemory(vi, false)
 				}
 			}
@@ -309,7 +353,8 @@ func (g *Goon) Get(dst interface{}) error {
 	dsts := []interface{}{dst}
 	if err := g.GetMulti(dsts); err != nil {
 		// Look for an embedded error if it's multi
-		if me, ok := err.(appengine.MultiError); ok {
+		var me datastore.MultiError
+		if errors.As(err, &me) {
 			return me[0]
 		}
 		// Not multi, normal error
@@ -333,9 +378,9 @@ func (g *Goon) GetMulti(dst interface{}) error {
 
 	v := reflect.Indirect(reflect.ValueOf(dst))
 
-	if g.inTransaction {
+	if g.txInfo != nil {
 		// todo: support getMultiLimit in transactions
-		return datastore.GetMulti(g.Context, keys, v.Interface())
+		return g.txInfo.tx.GetMulti(keys, v.Interface())
 	}
 
 	var dskeys []*datastore.Key
@@ -373,7 +418,7 @@ func (g *Goon) GetMulti(dst interface{}) error {
 		return nil
 	}
 
-	multiErr := make(appengine.MultiError, len(keys))
+	multiErr := make(datastore.MultiError, len(keys))
 	anyErr := false
 	goroutines := (len(dskeys)-1)/getMultiLimit + 1
 	var wg sync.WaitGroup
@@ -388,11 +433,16 @@ func (g *Goon) GetMulti(dst interface{}) error {
 			if hi > len(dskeys) {
 				hi = len(dskeys)
 			}
-			gmerr := datastore.GetMulti(g.Context, dskeys[lo:hi], dsdst[lo:hi])
+			var gmerr error
+			if g.txInfo != nil {
+				gmerr = g.txInfo.tx.GetMulti(dskeys[lo:hi], dsdst[lo:hi])
+			} else {
+				gmerr = g.client.GetMulti(g.Context, dskeys[lo:hi], dsdst[lo:hi])
+			}
 			if gmerr != nil {
 				anyErr = true // this flag tells GetMulti to return multiErr later
-				merr, ok := gmerr.(appengine.MultiError)
-				if !ok {
+				var merr datastore.MultiError
+				if !errors.As(gmerr, &merr) {
 					g.error(gmerr)
 					for j := lo; j < hi; j++ {
 						multiErr[j] = gmerr
@@ -404,7 +454,7 @@ func (g *Goon) GetMulti(dst interface{}) error {
 						toCache = append(toCache, dsdst[lo+i])
 						exists = append(exists, 1)
 					} else {
-						if merr[i] == datastore.ErrNoSuchEntity {
+						if errors.Is(merr[i], datastore.ErrNoSuchEntity) {
 							toCache = append(toCache, dsdst[lo+i])
 							exists = append(exists, 0)
 						}
@@ -431,7 +481,8 @@ func (g *Goon) GetMulti(dst interface{}) error {
 func (g *Goon) Delete(key *datastore.Key) error {
 	keys := []*datastore.Key{key}
 	err := g.DeleteMulti(keys)
-	if me, ok := err.(appengine.MultiError); ok {
+	var me datastore.MultiError
+	if errors.As(err, &me) {
 		return me[0]
 	}
 	return err
@@ -441,7 +492,7 @@ const deleteMultiLimit = 500
 
 // Returns a single error if each error in MultiError is the same
 // otherwise, returns multiError or nil (if multiError is empty)
-func realError(multiError appengine.MultiError) error {
+func realError(multiError datastore.MultiError) error {
 	if len(multiError) == 0 {
 		return nil
 	}
@@ -450,7 +501,7 @@ func realError(multiError appengine.MultiError) error {
 		// since type error could hold structs, pointers, etc,
 		// the only way to compare non-nil errors is by their string output
 		if init == nil || multiError[i] == nil {
-			if init != multiError[i] {
+			if !errors.Is(init, multiError[i]) {
 				return multiError
 			}
 		} else if init.Error() != multiError[i].Error() {
@@ -462,8 +513,8 @@ func realError(multiError appengine.MultiError) error {
 	if _, ok := init.(*datastore.ErrFieldMismatch); ok { // returned in GetMulti
 		return multiError
 	}
-	if init == datastore.ErrInvalidEntityType || // returned in GetMulti
-		init == datastore.ErrNoSuchEntity { // returned in GetMulti
+	if errors.Is(init, datastore.ErrInvalidEntityType) || // returned in GetMulti
+		errors.Is(init, datastore.ErrNoSuchEntity) { // returned in GetMulti
 		return multiError
 	}
 	// datastore.ErrInvalidKey is returned as a single error in PutMulti
@@ -482,10 +533,8 @@ func (g *Goon) DeleteMulti(keys []*datastore.Key) error {
 	for i, k := range keys {
 		mk := memkey(k)
 		memkeys[i] = mk
-
-		if g.inTransaction {
-			delete(g.toSet, mk)
-			g.toDelete[mk] = true
+		if g.txInfo != nil {
+			g.txInfo.toDelete[mk] = true
 		} else {
 			delete(g.cache, mk)
 		}
@@ -495,13 +544,13 @@ func (g *Goon) DeleteMulti(keys []*datastore.Key) error {
 	// Memcache needs to be updated after the datastore to prevent a common race condition,
 	// where a concurrent request will fetch the not-yet-updated data from the datastore
 	// and populate memcache with it.
-	if g.inTransaction {
-		g.toDeleteMC = append(g.toDeleteMC, memkeys...)
+	if g.txInfo != nil {
+		g.txInfo.toDeleteMC = append(g.txInfo.toDeleteMC, memkeys...)
 	} else {
 		defer goonCache.Remove(memkeys)
 	}
 
-	multiErr, anyErr := make(appengine.MultiError, len(keys)), false
+	multiErr, anyErr := make(datastore.MultiError, len(keys)), false
 	goroutines := (len(keys)-1)/deleteMultiLimit + 1
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
@@ -513,11 +562,16 @@ func (g *Goon) DeleteMulti(keys []*datastore.Key) error {
 			if hi > len(keys) {
 				hi = len(keys)
 			}
-			dmerr := datastore.DeleteMulti(g.Context, keys[lo:hi])
+			var dmerr error
+			if g.txInfo != nil {
+				dmerr = g.txInfo.tx.DeleteMulti(keys[lo:hi])
+			} else {
+				dmerr = g.client.DeleteMulti(g.Context, keys[lo:hi])
+			}
 			if dmerr != nil {
 				anyErr = true // this flag tells DeleteMulti to return multiErr later
-				merr, ok := dmerr.(appengine.MultiError)
-				if !ok {
+				var merr datastore.MultiError
+				if !errors.As(dmerr, &merr) {
 					g.error(dmerr)
 					for j := lo; j < hi; j++ {
 						multiErr[j] = dmerr
@@ -535,10 +589,11 @@ func (g *Goon) DeleteMulti(keys []*datastore.Key) error {
 	return nil
 }
 
-// NotFound returns true if err is an appengine.MultiError and err[idx] is a datastore.ErrNoSuchEntity.
+// NotFound returns true if err is an datastore.MultiError and err[idx] is a datastore.ErrNoSuchEntity.
 func NotFound(err error, idx int) bool {
-	if merr, ok := err.(appengine.MultiError); ok {
-		return idx < len(merr) && merr[idx] == datastore.ErrNoSuchEntity
+	var merr datastore.MultiError
+	if errors.As(err, &merr) {
+		return idx < len(merr) && errors.Is(merr[idx], datastore.ErrNoSuchEntity)
 	}
 	return false
 }

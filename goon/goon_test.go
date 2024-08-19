@@ -18,14 +18,15 @@ package goon
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
 
+	"cloud.google.com/go/datastore"
+	"google.golang.org/api/iterator"
 	"google.golang.org/appengine/v2"
-	"google.golang.org/appengine/v2/aetest"
-	"google.golang.org/appengine/v2/datastore"
 )
 
 // *[]S, *[]*S, *[]I, []S, []*S, []I
@@ -154,14 +155,21 @@ type ivItemI interface {
 
 var ivItems []ivItem
 
-func initializeIvItems(c context.Context) {
-	t1 := time.Now().Truncate(time.Microsecond)
+func NewKey(kind, stringId string, intId int64, parent *datastore.Key) *datastore.Key {
+	if intId == 0 {
+		return datastore.NameKey(kind, stringId, parent)
+	}
+	return datastore.IDKey(kind, intId, parent)
+}
+
+func initializeIvItems() {
+	t1 := time.Now().UTC().Truncate(time.Microsecond)
 	t2 := t1.Add(time.Second * 1)
 	t3 := t1.Add(time.Second * 2)
 
 	ivItems = []ivItem{
 		{Id: 1, Int: 123, Int8: 77, Int16: 13001, Int32: 1234567890, Int64: 123456789012345,
-			Float32: (float32(10) / float32(3)), Float64: (float64(10000000) / float64(9998)),
+			Float32: float32(10) / float32(3), Float64: float64(10000000) / float64(9998),
 			Bool: true, String: "one",
 			CustomTypes: ivItemCustom{Int: 123, Int8: 77, Int16: 13001, Int32: 1234567890, Int64: 123456789012345,
 				Float32: ivItemFloat32(float32(10) / float32(3)), Float64: ivItemFloat64(float64(10000000) / float64(9998)),
@@ -174,19 +182,19 @@ func initializeIvItems(c context.Context) {
 			ByteSlice: []byte{0xDE, 0xAD}, BSSlice: [][]byte{{0x01, 0x02}, {0x03, 0x04}},
 			Time: t1, TimeSlice: []time.Time{t1, t2, t3}, NoIndex: 1,
 			Casual: "clothes", Ζεύς: "Zeus",
-			Key:         datastore.NewKey(c, "Fruit", "Apple", 0, nil),
-			ChildKey:    datastore.NewKey(c, "Person", "Jane", 0, datastore.NewKey(c, "Person", "John", 0, datastore.NewKey(c, "Person", "Jack", 0, nil))),
-			KeySlice:    []*datastore.Key{datastore.NewKey(c, "Key", "", 1, nil), datastore.NewKey(c, "Key", "", 2, nil), datastore.NewKey(c, "Key", "", 3, nil)},
-			KeySliceNil: []*datastore.Key{datastore.NewKey(c, "Number", "", 1, nil), nil, datastore.NewKey(c, "Number", "", 2, nil)},
+			Key:         NewKey("Fruit", "Apple", 0, nil),
+			ChildKey:    NewKey("Person", "Jane", 0, NewKey("Person", "John", 0, NewKey("Person", "Jack", 0, nil))),
+			KeySlice:    []*datastore.Key{NewKey("Key", "", 1, nil), NewKey("Key", "", 2, nil), NewKey("Key", "", 3, nil)},
+			KeySliceNil: []*datastore.Key{NewKey("Number", "", 1, nil), nil, NewKey("Number", "", 2, nil)},
 			BlobKey:     "fake #1", BKSlice: []appengine.BlobKey{"fake #1.1", "fake #1.2"},
 			Sub: ivItemSub{Data: "yay #1", Ints: []int{1, 2, 3}},
 			Subs: []ivItemSubs{
 				{Data: "sub #1.1", Extra: "xtra #1.1"},
 				{Data: "sub #1.2", Extra: "xtra #1.2"},
 				{Data: "sub #1.3", Extra: "xtra #1.3"}},
-			ZZZV: []ivZZZV{{Data: "None"}, {Key: datastore.NewKey(c, "Fruit", "Banana", 0, nil)}}},
+			ZZZV: []ivZZZV{{Data: "None"}, {Key: NewKey("Fruit", "Banana", 0, nil)}}},
 		{Id: 2, Int: 124, Int8: 78, Int16: 13002, Int32: 1234567891, Int64: 123456789012346,
-			Float32: (float32(10) / float32(3)), Float64: (float64(10000000) / float64(9998)),
+			Float32: float32(10) / float32(3), Float64: float64(10000000) / float64(9998),
 			Bool: true, String: "two",
 			CustomTypes: ivItemCustom{Int: 124, Int8: 78, Int16: 13002, Int32: 1234567891, Int64: 123456789012346,
 				Float32: ivItemFloat32(float32(10) / float32(3)), Float64: ivItemFloat64(float64(10000000) / float64(9998)),
@@ -199,19 +207,19 @@ func initializeIvItems(c context.Context) {
 			ByteSlice: []byte{0xBE, 0xEF}, BSSlice: [][]byte{{0x05, 0x06}, {0x07, 0x08}},
 			Time: t2, TimeSlice: []time.Time{t2, t3, t1}, NoIndex: 2,
 			Casual: "manners", Ζεύς: "Alcmene",
-			Key:         datastore.NewKey(c, "Fruit", "Banana", 0, nil),
-			ChildKey:    datastore.NewKey(c, "Person", "Jane", 0, datastore.NewKey(c, "Person", "John", 0, datastore.NewKey(c, "Person", "Jack", 0, nil))),
-			KeySlice:    []*datastore.Key{datastore.NewKey(c, "Key", "", 4, nil), datastore.NewKey(c, "Key", "", 5, nil), datastore.NewKey(c, "Key", "", 6, nil)},
-			KeySliceNil: []*datastore.Key{datastore.NewKey(c, "Number", "", 3, nil), nil, datastore.NewKey(c, "Number", "", 4, nil)},
+			Key:         NewKey("Fruit", "Banana", 0, nil),
+			ChildKey:    NewKey("Person", "Jane", 0, NewKey("Person", "John", 0, NewKey("Person", "Jack", 0, nil))),
+			KeySlice:    []*datastore.Key{NewKey("Key", "", 4, nil), NewKey("Key", "", 5, nil), NewKey("Key", "", 6, nil)},
+			KeySliceNil: []*datastore.Key{NewKey("Number", "", 3, nil), nil, NewKey("Number", "", 4, nil)},
 			BlobKey:     "fake #2", BKSlice: []appengine.BlobKey{"fake #2.1", "fake #2.2"},
 			Sub: ivItemSub{Data: "yay #2", Ints: []int{4, 5, 6}},
 			Subs: []ivItemSubs{
 				{Data: "sub #2.1", Extra: "xtra #2.1"},
 				{Data: "sub #2.2", Extra: "xtra #2.2"},
 				{Data: "sub #2.3", Extra: "xtra #2.3"}},
-			ZZZV: []ivZZZV{{Data: "None"}, {Key: datastore.NewKey(c, "Fruit", "Banana", 0, nil)}}},
+			ZZZV: []ivZZZV{{Data: "None"}, {Key: NewKey("Fruit", "Banana", 0, nil)}}},
 		{Id: 3, Int: 125, Int8: 79, Int16: 13003, Int32: 1234567892, Int64: 123456789012347,
-			Float32: (float32(10) / float32(3)), Float64: (float64(10000000) / float64(9998)),
+			Float32: float32(10) / float32(3), Float64: float64(10000000) / float64(9998),
 			Bool: true, String: "tri",
 			CustomTypes: ivItemCustom{Int: 125, Int8: 79, Int16: 13003, Int32: 1234567892, Int64: 123456789012347,
 				Float32: ivItemFloat32(float32(10) / float32(3)), Float64: ivItemFloat64(float64(10000000) / float64(9998)),
@@ -224,20 +232,20 @@ func initializeIvItems(c context.Context) {
 			ByteSlice: []byte{0xF0, 0x0D}, BSSlice: [][]byte{{0x09, 0x0A}, {0x0B, 0x0C}},
 			Time: t3, TimeSlice: []time.Time{t3, t1, t2}, NoIndex: 3,
 			Casual: "weather", Ζεύς: "Hercules",
-			Key:         datastore.NewKey(c, "Fruit", "Cherry", 0, nil),
-			ChildKey:    datastore.NewKey(c, "Person", "Jane", 0, datastore.NewKey(c, "Person", "John", 0, datastore.NewKey(c, "Person", "Jack", 0, nil))),
-			KeySlice:    []*datastore.Key{datastore.NewKey(c, "Key", "", 7, nil), datastore.NewKey(c, "Key", "", 8, nil), datastore.NewKey(c, "Key", "", 9, nil)},
-			KeySliceNil: []*datastore.Key{datastore.NewKey(c, "Number", "", 5, nil), nil, datastore.NewKey(c, "Number", "", 6, nil)},
+			Key:         NewKey("Fruit", "Cherry", 0, nil),
+			ChildKey:    NewKey("Person", "Jane", 0, NewKey("Person", "John", 0, NewKey("Person", "Jack", 0, nil))),
+			KeySlice:    []*datastore.Key{NewKey("Key", "", 7, nil), NewKey("Key", "", 8, nil), NewKey("Key", "", 9, nil)},
+			KeySliceNil: []*datastore.Key{NewKey("Number", "", 5, nil), nil, NewKey("Number", "", 6, nil)},
 			BlobKey:     "fake #3", BKSlice: []appengine.BlobKey{"fake #3.1", "fake #3.2"},
 			Sub: ivItemSub{Data: "yay #3", Ints: []int{7, 8, 9}},
 			Subs: []ivItemSubs{
 				{Data: "sub #3.1", Extra: "xtra #3.1"},
 				{Data: "sub #3.2", Extra: "xtra #3.2"},
 				{Data: "sub #3.3", Extra: "xtra #3.3"}},
-			ZZZV: []ivZZZV{{Data: "None"}, {Key: datastore.NewKey(c, "Fruit", "Banana", 0, nil)}}}}
+			ZZZV: []ivZZZV{{Data: "None"}, {Key: NewKey("Fruit", "Banana", 0, nil)}}}}
 }
 
-func getIVItemCopy(g *Goon, index int) *ivItem {
+func getIVItemCopy(_ *Goon, index int) *ivItem {
 	// All basic value types are copied easily
 	ivi := ivItems[index]
 
@@ -344,7 +352,7 @@ func getIVItemCopy(g *Goon, index int) *ivItem {
 
 	ivi.BSSlice = [][]byte{}
 	for _, v := range ivItems[index].BSSlice {
-		vCopy := []byte{}
+		var vCopy []byte
 		for _, v := range v {
 			vCopy = append(vCopy, v)
 		}
@@ -356,15 +364,15 @@ func getIVItemCopy(g *Goon, index int) *ivItem {
 		ivi.TimeSlice = append(ivi.TimeSlice, v)
 	}
 
-	ivi.Key = datastore.NewKey(g.Context, ivItems[index].Key.Kind(), ivItems[index].Key.StringID(), ivItems[index].Key.IntID(), nil)
+	ivi.Key = NewKey(ivItems[index].Key.Kind, ivItems[index].Key.Name, ivItems[index].Key.ID, nil)
 
-	ivi.ChildKey = datastore.NewKey(g.Context, ivItems[index].ChildKey.Kind(), ivItems[index].ChildKey.StringID(), ivItems[index].ChildKey.IntID(),
-		datastore.NewKey(g.Context, ivItems[index].ChildKey.Parent().Kind(), ivItems[index].ChildKey.Parent().StringID(), ivItems[index].ChildKey.Parent().IntID(),
-			datastore.NewKey(g.Context, ivItems[index].ChildKey.Parent().Parent().Kind(), ivItems[index].ChildKey.Parent().Parent().StringID(), ivItems[index].ChildKey.Parent().Parent().IntID(), nil)))
+	ivi.ChildKey = NewKey(ivItems[index].ChildKey.Kind, ivItems[index].ChildKey.Name, ivItems[index].ChildKey.ID,
+		NewKey(ivItems[index].ChildKey.Parent.Kind, ivItems[index].ChildKey.Parent.Name, ivItems[index].ChildKey.Parent.ID,
+			NewKey(ivItems[index].ChildKey.Parent.Parent.Kind, ivItems[index].ChildKey.Parent.Parent.Name, ivItems[index].ChildKey.Parent.Parent.ID, nil)))
 
 	ivi.KeySlice = []*datastore.Key{}
 	for _, key := range ivItems[index].KeySlice {
-		ivi.KeySlice = append(ivi.KeySlice, datastore.NewKey(g.Context, key.Kind(), key.StringID(), key.IntID(), nil))
+		ivi.KeySlice = append(ivi.KeySlice, NewKey(key.Kind, key.Name, key.ID, nil))
 	}
 
 	ivi.KeySliceNil = []*datastore.Key{}
@@ -372,7 +380,7 @@ func getIVItemCopy(g *Goon, index int) *ivItem {
 		if key == nil {
 			ivi.KeySliceNil = append(ivi.KeySliceNil, nil)
 		} else {
-			ivi.KeySliceNil = append(ivi.KeySliceNil, datastore.NewKey(g.Context, key.Kind(), key.StringID(), key.IntID(), nil))
+			ivi.KeySliceNil = append(ivi.KeySliceNil, NewKey(key.Kind, key.Name, key.ID, nil))
 		}
 	}
 
@@ -410,37 +418,37 @@ func getInputVarietySrc(t *testing.T, g *Goon, ivType int, indices ...int) inter
 
 	switch ivType {
 	case ivTypePtrToSliceOfStructs:
-		s := []ivItem{}
+		var s []ivItem
 		for _, index := range indices {
 			s = append(s, *getIVItemCopy(g, index))
 		}
 		result = &s
 	case ivTypePtrToSliceOfPtrsToStruct:
-		s := []*ivItem{}
+		var s []*ivItem
 		for _, index := range indices {
 			s = append(s, getIVItemCopy(g, index))
 		}
 		result = &s
 	case ivTypePtrToSliceOfInterfaces:
-		s := []ivItemI{}
+		var s []ivItemI
 		for _, index := range indices {
 			s = append(s, getIVItemCopy(g, index))
 		}
 		result = &s
 	case ivTypeSliceOfStructs:
-		s := []ivItem{}
+		var s []ivItem
 		for _, index := range indices {
 			s = append(s, *getIVItemCopy(g, index))
 		}
 		result = s
 	case ivTypeSliceOfPtrsToStruct:
-		s := []*ivItem{}
+		var s []*ivItem
 		for _, index := range indices {
 			s = append(s, getIVItemCopy(g, index))
 		}
 		result = s
 	case ivTypeSliceOfInterfaces:
-		s := []ivItemI{}
+		var s []ivItemI
 		for _, index := range indices {
 			s = append(s, getIVItemCopy(g, index))
 		}
@@ -622,7 +630,7 @@ func validateInputVariety(t *testing.T, g *Goon, srcType, dstType, mode int) {
 	}
 
 	// Get our data back and make sure it's correct
-	ivGetMulti(t, g, ref, dst, prettyInfo)
+	_ = ivGetMulti(t, g, ref, dst, prettyInfo)
 }
 
 func validateInputVarietyTXNPut(t *testing.T, g *Goon, srcType, dstType, mode int) {
@@ -658,7 +666,7 @@ func validateInputVarietyTXNPut(t *testing.T, g *Goon, srcType, dstType, mode in
 	if err := g.RunInTransaction(func(tg *Goon) error {
 		_, err := tg.PutMulti(src)
 		return err
-	}, &datastore.TransactionOptions{XG: true}); err != nil {
+	}); err != nil {
 		t.Errorf("%s > Unexpected error on PutMulti - %v", prettyInfo, err)
 	}
 
@@ -678,13 +686,13 @@ func validateInputVarietyTXNPut(t *testing.T, g *Goon, srcType, dstType, mode in
 		if err := g.RunInTransaction(func(tg *Goon) error {
 			_, err := tg.PutMulti(subSrc)
 			return err
-		}, &datastore.TransactionOptions{XG: true}); err != nil {
+		}); err != nil {
 			t.Errorf("%s > Unexpected error on PutMulti - %v", prettyInfo, err)
 		}
 	}
 
 	// Get our data back and make sure it's correct
-	ivGetMulti(t, g, ref, dst, prettyInfo)
+	_ = ivGetMulti(t, g, ref, dst, prettyInfo)
 }
 
 func validateInputVarietyTXNGet(t *testing.T, g *Goon, srcType, dstType, mode int) {
@@ -727,8 +735,7 @@ func validateInputVarietyTXNGet(t *testing.T, g *Goon, srcType, dstType, mode in
 
 	// Set the caches into proper state based on given mode
 	// TODO: Instead of clear, fill the caches with invalid data, because we're supposed to always fetch from the datastore
-	switch mode {
-	case ivModeDatastore:
+	if mode == ivModeDatastore {
 		g.FlushLocalCache()
 		goonCache.Flush()
 	}
@@ -736,20 +743,18 @@ func validateInputVarietyTXNGet(t *testing.T, g *Goon, srcType, dstType, mode in
 	// Get our data back and make sure it's correct
 	if err := g.RunInTransaction(func(tg *Goon) error {
 		return ivGetMulti(t, tg, ref, dst, prettyInfo)
-	}, &datastore.TransactionOptions{XG: true}); err != nil {
+	}); err != nil {
 		t.Errorf("%s > Unexpected error on transaction - %v", prettyInfo, err)
 	}
 }
 
 func TestInputVariety(t *testing.T) {
-	c, closeFn, err := aetest.NewContext()
+	g, err := newTestGoon()
 	if err != nil {
-		t.Fatalf("Could not start aetest - %v", err)
+		t.Fatalf("could not create test goon - %v", err)
 	}
-	defer closeFn()
-	g := FromContext(c)
 
-	initializeIvItems(c)
+	initializeIvItems()
 
 	for srcType := 0; srcType < ivTypeTotal; srcType++ {
 		for dstType := 0; dstType < ivTypeTotal; dstType++ {
@@ -772,12 +777,12 @@ type MigrationA struct {
 	α         int               `datastore:",noindex"`
 	Level     MigrationIntA     `datastore:"level,noindex"`
 	Floor     MigrationIntA     `datastore:"floor,noindex"`
-	Sub       MigrationSub      `datastore:"sub,noindex"`
+	Sub       MigrationSub      `datastore:"sub,noindex,flatten"`
 	Son       MigrationPerson   `datastore:"son,noindex"`
-	Daughter  MigrationPerson   `datastore:"daughter,noindex"`
+	Daughter  MigrationPerson   `datastore:"daughter,noindex,flatten"`
 	Parents   []MigrationPerson `datastore:"parents,noindex"`
 	DeepSlice MigrationDeepA    `datastore:"deep,noindex"`
-	ZZs       []ZigZag          `datastore:"zigzag,noindex"`
+	ZZs       []ZigZag          `datastore:"zigzag,noindex,flatten"`
 	ZeroKey   *datastore.Key    `datastore:",noindex"`
 	File      []byte
 }
@@ -840,18 +845,16 @@ type MigrationB struct {
 	DaughterAge    int               `datastore:"daughter.age,noindex"`
 	OldFolks       []MigrationPerson `datastore:"parents,noindex"`
 	FarSlice       MigrationDeepA    `datastore:"deep,noindex"`
-	ZZs            ZigZags           `datastore:"zigzag,noindex"`
+	ZZs            ZigZags           `datastore:"zigzag,noindex,flatten"`
 	Keys           []*datastore.Key  `datastore:"ZeroKey,noindex"`
 	Files          [][]byte          `datastore:"File,noindex"`
 }
 
 func TestMigration(t *testing.T) {
-	c, closeFn, err := aetest.NewContext()
+	g, err := newTestGoon()
 	if err != nil {
-		t.Fatalf("Could not start aetest - %v", err)
+		t.Fatalf("could not create test goon - %v", err)
 	}
-	defer closeFn()
-	g := FromContext(c)
 
 	// Create & save an entity with the original structure
 	migA := &MigrationA{Id: 1, Number: 123, Word: "rabbit", Car: "BMW",
@@ -867,6 +870,7 @@ func TestMigration(t *testing.T) {
 
 	// Clear the local cache, because we want this data in memcache
 	g.FlushLocalCache()
+	goonCache.Flush()
 
 	// Get it back, so it's in the cache
 	migA = &MigrationA{Id: 1}
@@ -876,6 +880,7 @@ func TestMigration(t *testing.T) {
 
 	// Clear the local cache, because it doesn't need to support migration
 	g.FlushLocalCache()
+	goonCache.Flush()
 
 	// Test whether memcache supports migration
 	verifyMigration(t, g, migA, "MC")
@@ -956,12 +961,10 @@ func verifyMigration(t *testing.T, g *Goon, migA *MigrationA, debugInfo string) 
 }
 
 func TestTXNRace(t *testing.T) {
-	c, closeFn, err := aetest.NewContext()
+	g, err := newTestGoon()
 	if err != nil {
-		t.Fatalf("Could not start aetest - %v", err)
+		t.Fatalf("could not create test goon - %v", err)
 	}
-	defer closeFn()
-	g := FromContext(c)
 
 	// Create & store some test data
 	hid := &HasId{Id: 1, Name: "foo"}
@@ -1006,7 +1009,7 @@ func TestTXNRace(t *testing.T) {
 
 		// Commit the transaction
 		return nil
-	}, &datastore.TransactionOptions{XG: false}); err != nil {
+	}); err != nil {
 		t.Errorf("Unexpected error with TXN - %v", err)
 	}
 
@@ -1040,7 +1043,7 @@ func TestTXNRace(t *testing.T) {
 
 		// Commit the transaction
 		return nil
-	}, &datastore.TransactionOptions{XG: false}); err != nil {
+	}); err != nil {
 		t.Errorf("Unexpected error with TXN - %v", err)
 	}
 
@@ -1048,43 +1051,39 @@ func TestTXNRace(t *testing.T) {
 	g.FlushLocalCache()
 
 	// Attempt to get the data back again, to confirm it was deleted in the transaction
-	if err := g.Get(hid); err != datastore.ErrNoSuchEntity {
+	if err := g.Get(hid); !errors.Is(err, datastore.ErrNoSuchEntity) {
 		t.Errorf("Expected ErrNoSuchEntity, got %v", err)
 	}
 }
 
 func TestNegativeCacheHit(t *testing.T) {
-	c, closeFn, err := aetest.NewContext()
+	g, err := newTestGoon()
 	if err != nil {
-		t.Fatalf("Could not start aetest - %v", err)
+		t.Fatalf("could not create test goon - %v", err)
 	}
-	defer closeFn()
-	g := FromContext(c)
 
 	hid := &HasId{Id: 1}
 
-	if err := g.Get(hid); err != datastore.ErrNoSuchEntity {
+	if err := g.Get(hid); !errors.Is(err, datastore.ErrNoSuchEntity) {
 		t.Errorf("Expected ErrNoSuchEntity, got %v", err)
 	}
 
 	// Do a sneaky save straight to the datastore
-	if _, err := datastore.Put(c, datastore.NewKey(c, "HasId", "", 1, nil), &HasId{Id: 1, Name: "one"}); err != nil {
+	if _, err := g.client.Put(g.Context, NewKey("HasId", "", 1, nil), &HasId{Id: 1, Name: "one"}); err != nil {
 		t.Errorf("Unexpected error on datastore.Put: %v", err)
 	}
 
 	// Get the entity again via goon, to make sure we cached the non-existance
-	if err := g.Get(hid); err != datastore.ErrNoSuchEntity {
+	if err := g.Get(hid); !errors.Is(err, datastore.ErrNoSuchEntity) {
 		t.Errorf("Expected ErrNoSuchEntity, got %v", err)
 	}
 }
 
 func TestCaches(t *testing.T) {
-	c, closeFn, err := aetest.NewContext()
+	g, err := newTestGoon()
 	if err != nil {
-		t.Fatalf("Could not start aetest - %v", err)
+		t.Fatalf("could not create test goon - %v", err)
 	}
-	defer closeFn()
-	g := FromContext(c)
 
 	// Put *struct{}
 	phid := &HasId{Name: "cacheFail"}
@@ -1137,13 +1136,19 @@ func TestCaches(t *testing.T) {
 	}
 }
 
-func TestGoon(t *testing.T) {
-	c, closeFn, err := aetest.NewContext()
+func newTestGoon() (*Goon, error) {
+	client, err := datastore.NewClient(context.Background(), datastore.DetectProjectID)
 	if err != nil {
-		t.Fatalf("Could not start aetest - %v", err)
+		return nil, err
 	}
-	defer closeFn()
-	n := FromContext(c)
+	return FromContext(ContextWithClient(context.Background(), client)), nil
+}
+
+func TestGoon(t *testing.T) {
+	n, err := newTestGoon()
+	if err != nil {
+		t.Fatalf("could not create test goon - %v", err)
+	}
 
 	// key tests
 	noid := NoId{}
@@ -1157,28 +1162,28 @@ func TestGoon(t *testing.T) {
 	var keyTests = []keyTest{
 		{
 			HasDefaultKind{},
-			datastore.NewKey(c, "DefaultKind", "", 0, nil),
+			NewKey("DefaultKind", "", 0, nil),
 		},
 		{
 			HasId{Id: 1},
-			datastore.NewKey(c, "HasId", "", 1, nil),
+			NewKey("HasId", "", 1, nil),
 		},
 		{
 			HasKind{Id: 1, Kind: "OtherKind"},
-			datastore.NewKey(c, "OtherKind", "", 1, nil),
+			NewKey("OtherKind", "", 1, nil),
 		},
 
 		{
 			HasDefaultKind{Id: 1, Kind: "OtherKind"},
-			datastore.NewKey(c, "OtherKind", "", 1, nil),
+			NewKey("OtherKind", "", 1, nil),
 		},
 		{
 			HasDefaultKind{Id: 1},
-			datastore.NewKey(c, "DefaultKind", "", 1, nil),
+			NewKey("DefaultKind", "", 1, nil),
 		},
 		{
 			HasString{Id: "new"},
-			datastore.NewKey(c, "HasString", "new", 0, nil),
+			NewKey("HasString", "new", 0, nil),
 		},
 	}
 
@@ -1186,7 +1191,7 @@ func TestGoon(t *testing.T) {
 		if k, err := n.KeyError(kt.obj); err != nil {
 			t.Errorf("error: %v", err)
 		} else if !k.Equal(kt.key) {
-			t.Errorf("keys not equal")
+			t.Errorf("keys not equal: %v, %v", k, kt.key)
 		}
 	}
 
@@ -1195,17 +1200,17 @@ func TestGoon(t *testing.T) {
 	}
 
 	// datastore tests
-	keys, _ := datastore.NewQuery("HasId").KeysOnly().GetAll(c, nil)
-	datastore.DeleteMulti(c, keys)
+	keys, _ := n.client.GetAll(n.Context, datastore.NewQuery("HasId").KeysOnly(), nil)
+	_ = n.client.DeleteMulti(context.Background(), keys)
 	goonCache.Flush()
 	if err := n.Get(&HasId{Id: 0}); err == nil {
 		t.Errorf("ds: expected error, we're fetching from the datastore on an incomplete key!")
 	}
-	if err := n.Get(&HasId{Id: 1}); err != datastore.ErrNoSuchEntity {
+	if err := n.Get(&HasId{Id: 1}); !errors.Is(err, datastore.ErrNoSuchEntity) {
 		t.Errorf("ds: expected no such entity")
 	}
 	// run twice to make sure autocaching works correctly
-	if err := n.Get(&HasId{Id: 1}); err != datastore.ErrNoSuchEntity {
+	if err := n.Get(&HasId{Id: 1}); !errors.Is(err, datastore.ErrNoSuchEntity) {
 		t.Errorf("ds: expected no such entity")
 	}
 	es := []*HasId{
@@ -1247,11 +1252,11 @@ func TestGoon(t *testing.T) {
 		t.Errorf("put: bad results")
 	} else {
 		nesk0 := n.Key(nes[0])
-		if !nesk0.Equal(datastore.NewKey(c, "HasId", "", 1, nil)) {
+		if !nesk0.Equal(NewKey("HasId", "", 1, nil)) {
 			t.Errorf("put: bad key")
 		}
 		nesk1 := n.Key(nes[1])
-		if !nesk1.Equal(datastore.NewKey(c, "HasId", "", 2, nil)) {
+		if !nesk1.Equal(NewKey("HasId", "", 2, nil)) {
 			t.Errorf("put: bad key")
 		}
 	}
@@ -1350,8 +1355,8 @@ func TestGoon(t *testing.T) {
 	// Test queries!
 
 	// Test that zero result queries work properly
-	qiZRes := []QueryItem{}
-	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem"), &qiZRes); err != nil {
+	var qiZRes []QueryItem
+	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem"), &qiZRes, false); err != nil {
 		t.Errorf("GetAll Zero: unexpected error: %v", err)
 	} else if len(dskeys) != 0 {
 		t.Errorf("GetAll Zero: expected 0 keys, got %v", len(dskeys))
@@ -1361,8 +1366,8 @@ func TestGoon(t *testing.T) {
 	if getKeys, err := n.PutMulti([]*QueryItem{{Id: 1, Data: "one"}, {Id: 2, Data: "two"}}); err != nil {
 		t.Errorf("PutMulti: unexpected error: %v", err)
 	} else {
-		// do a datastore Get by *Key so that data is written to the datstore and indexes generated before subsequent query
-		if err := datastore.GetMulti(c, getKeys, make([]QueryItem, 2)); err != nil {
+		// do a datastore Get by *Key so that data is written to the datastore and indexes generated before subsequent query
+		if err := n.client.GetMulti(context.Background(), getKeys, make([]QueryItem, 2)); err != nil {
 			t.Error(err)
 		}
 	}
@@ -1371,13 +1376,13 @@ func TestGoon(t *testing.T) {
 	n.FlushLocalCache()
 
 	// Get the entity using a slice of structs
-	qiSRes := []QueryItem{}
-	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").Filter("data=", "one"), &qiSRes); err != nil {
+	var qiSRes []QueryItem
+	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").FilterField("data", "=", "one"), &qiSRes, false); err != nil {
 		t.Errorf("GetAll SoS: unexpected error: %v", err)
 	} else if len(dskeys) != 1 {
 		t.Errorf("GetAll SoS: expected 1 key, got %v", len(dskeys))
-	} else if dskeys[0].IntID() != 1 {
-		t.Errorf("GetAll SoS: expected key IntID to be 1, got %v", dskeys[0].IntID())
+	} else if dskeys[0].ID != 1 {
+		t.Errorf("GetAll SoS: expected key IntID to be 1, got %v", dskeys[0].ID)
 	} else if len(qiSRes) != 1 {
 		t.Errorf("GetAll SoS: expected 1 result, got %v", len(qiSRes))
 	} else if qiSRes[0].Id != 1 {
@@ -1400,13 +1405,13 @@ func TestGoon(t *testing.T) {
 	n.FlushLocalCache()
 
 	// Get the entity using a slice of pointers to struct
-	qiPRes := []*QueryItem{}
-	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").Filter("data=", "one"), &qiPRes); err != nil {
+	var qiPRes []*QueryItem
+	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").FilterField("data", "=", "one"), &qiPRes, false); err != nil {
 		t.Errorf("GetAll SoPtS: unexpected error: %v", err)
 	} else if len(dskeys) != 1 {
 		t.Errorf("GetAll SoPtS: expected 1 key, got %v", len(dskeys))
-	} else if dskeys[0].IntID() != 1 {
-		t.Errorf("GetAll SoPtS: expected key IntID to be 1, got %v", dskeys[0].IntID())
+	} else if dskeys[0].ID != 1 {
+		t.Errorf("GetAll SoPtS: expected key IntID to be 1, got %v", dskeys[0].ID)
 	} else if len(qiPRes) != 1 {
 		t.Errorf("GetAll SoPtS: expected 1 result, got %v", len(qiPRes))
 	} else if qiPRes[0].Id != 1 {
@@ -1429,13 +1434,13 @@ func TestGoon(t *testing.T) {
 	n.FlushLocalCache()
 
 	// Get the entity using an iterator
-	qiIt := n.Run(datastore.NewQuery("QueryItem").Filter("data=", "one"))
+	qiIt := n.Run(datastore.NewQuery("QueryItem").FilterField("data", "=", "one"))
 
 	qiItRes := &QueryItem{}
 	if dskey, err := qiIt.Next(qiItRes); err != nil {
 		t.Errorf("Next: unexpected error: %v", err)
-	} else if dskey.IntID() != 1 {
-		t.Errorf("Next: expected key IntID to be 1, got %v", dskey.IntID())
+	} else if dskey.ID != 1 {
+		t.Errorf("Next: expected key IntID to be 1, got %v", dskey.ID)
 	} else if qiItRes.Id != 1 {
 		t.Errorf("Next: expected entity id to be 1, got %v", qiItRes.Id)
 	} else if qiItRes.Data != "one" {
@@ -1443,7 +1448,7 @@ func TestGoon(t *testing.T) {
 	}
 
 	// Make sure the iterator ends correctly
-	if _, err := qiIt.Next(&QueryItem{}); err != datastore.Done {
+	if _, err := qiIt.Next(&QueryItem{}); !errors.Is(err, iterator.Done) {
 		t.Errorf("Next: expected iterator to end with the error datastore.Done, got %v", err)
 	}
 
@@ -1462,12 +1467,12 @@ func TestGoon(t *testing.T) {
 
 	// Get the entity using a non-zero slice of structs
 	qiNZSRes := []QueryItem{{Id: 1, Data: "invalid cache"}}
-	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").Filter("data=", "two"), &qiNZSRes); err != nil {
+	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").FilterField("data", "=", "two"), &qiNZSRes, false); err != nil {
 		t.Errorf("GetAll NZSoS: unexpected error: %v", err)
 	} else if len(dskeys) != 1 {
 		t.Errorf("GetAll NZSoS: expected 1 key, got %v", len(dskeys))
-	} else if dskeys[0].IntID() != 2 {
-		t.Errorf("GetAll NZSoS: expected key IntID to be 2, got %v", dskeys[0].IntID())
+	} else if dskeys[0].ID != 2 {
+		t.Errorf("GetAll NZSoS: expected key IntID to be 2, got %v", dskeys[0].ID)
 	} else if len(qiNZSRes) != 2 {
 		t.Errorf("GetAll NZSoS: expected slice len to be 2, got %v", len(qiNZSRes))
 	} else if qiNZSRes[0].Id != 1 {
@@ -1501,12 +1506,12 @@ func TestGoon(t *testing.T) {
 
 	// Get the entity using a non-zero slice of pointers to struct
 	qiNZPRes := []*QueryItem{{Id: 1, Data: "invalid cache"}}
-	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").Filter("data=", "two"), &qiNZPRes); err != nil {
+	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").FilterField("data", "=", "two"), &qiNZPRes, false); err != nil {
 		t.Errorf("GetAll NZSoPtS: unexpected error: %v", err)
 	} else if len(dskeys) != 1 {
 		t.Errorf("GetAll NZSoPtS: expected 1 key, got %v", len(dskeys))
-	} else if dskeys[0].IntID() != 2 {
-		t.Errorf("GetAll NZSoPtS: expected key IntID to be 2, got %v", dskeys[0].IntID())
+	} else if dskeys[0].ID != 2 {
+		t.Errorf("GetAll NZSoPtS: expected key IntID to be 2, got %v", dskeys[0].ID)
 	} else if len(qiNZPRes) != 2 {
 		t.Errorf("GetAll NZSoPtS: expected slice len to be 2, got %v", len(qiNZPRes))
 	} else if qiNZPRes[0].Id != 1 {
@@ -1539,12 +1544,12 @@ func TestGoon(t *testing.T) {
 	n.FlushLocalCache()
 
 	// Test the simplest keys-only query
-	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").Filter("data=", "one").KeysOnly(), nil); err != nil {
+	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").FilterField("data", "=", "one").KeysOnly(), nil, true); err != nil {
 		t.Errorf("GetAll KeysOnly: unexpected error: %v", err)
 	} else if len(dskeys) != 1 {
 		t.Errorf("GetAll KeysOnly: expected 1 key, got %v", len(dskeys))
-	} else if dskeys[0].IntID() != 1 {
-		t.Errorf("GetAll KeysOnly: expected key IntID to be 1, got %v", dskeys[0].IntID())
+	} else if dskeys[0].ID != 1 {
+		t.Errorf("GetAll KeysOnly: expected key IntID to be 1, got %v", dskeys[0].ID)
 	}
 
 	// Get the entity using normal Get to test that the local cache wasn't filled with incomplete data
@@ -1561,13 +1566,13 @@ func TestGoon(t *testing.T) {
 	n.FlushLocalCache()
 
 	// Test the keys-only query with slice of structs
-	qiKOSRes := []QueryItem{}
-	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").Filter("data=", "one").KeysOnly(), &qiKOSRes); err != nil {
+	var qiKOSRes []QueryItem
+	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").FilterField("data", "=", "one").KeysOnly(), &qiKOSRes, true); err != nil {
 		t.Errorf("GetAll KeysOnly SoS: unexpected error: %v", err)
 	} else if len(dskeys) != 1 {
 		t.Errorf("GetAll KeysOnly SoS: expected 1 key, got %v", len(dskeys))
-	} else if dskeys[0].IntID() != 1 {
-		t.Errorf("GetAll KeysOnly SoS: expected key IntID to be 1, got %v", dskeys[0].IntID())
+	} else if dskeys[0].ID != 1 {
+		t.Errorf("GetAll KeysOnly SoS: expected key IntID to be 1, got %v", dskeys[0].ID)
 	} else if len(qiKOSRes) != 1 {
 		t.Errorf("GetAll KeysOnly SoS: expected 1 result, got %v", len(qiKOSRes))
 	} else if k := reflect.TypeOf(qiKOSRes[0]).Kind(); k != reflect.Struct {
@@ -1591,13 +1596,13 @@ func TestGoon(t *testing.T) {
 	n.FlushLocalCache()
 
 	// Test the keys-only query with slice of pointers to struct
-	qiKOPRes := []*QueryItem{}
-	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").Filter("data=", "one").KeysOnly(), &qiKOPRes); err != nil {
+	var qiKOPRes []*QueryItem
+	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").FilterField("data", "=", "one").KeysOnly(), &qiKOPRes, true); err != nil {
 		t.Errorf("GetAll KeysOnly SoPtS: unexpected error: %v", err)
 	} else if len(dskeys) != 1 {
 		t.Errorf("GetAll KeysOnly SoPtS: expected 1 key, got %v", len(dskeys))
-	} else if dskeys[0].IntID() != 1 {
-		t.Errorf("GetAll KeysOnly SoPtS: expected key IntID to be 1, got %v", dskeys[0].IntID())
+	} else if dskeys[0].ID != 1 {
+		t.Errorf("GetAll KeysOnly SoPtS: expected key IntID to be 1, got %v", dskeys[0].ID)
 	} else if len(qiKOPRes) != 1 {
 		t.Errorf("GetAll KeysOnly SoPtS: expected 1 result, got %v", len(qiKOPRes))
 	} else if k := reflect.TypeOf(qiKOPRes[0]).Kind(); k != reflect.Ptr {
@@ -1622,12 +1627,12 @@ func TestGoon(t *testing.T) {
 
 	// Test the keys-only query with non-zero slice of structs
 	qiKONZSRes := []QueryItem{{Id: 1, Data: "invalid cache"}}
-	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").Filter("data=", "two").KeysOnly(), &qiKONZSRes); err != nil {
+	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").FilterField("data", "=", "two").KeysOnly(), &qiKONZSRes, true); err != nil {
 		t.Errorf("GetAll KeysOnly NZSoS: unexpected error: %v", err)
 	} else if len(dskeys) != 1 {
 		t.Errorf("GetAll KeysOnly NZSoS: expected 1 key, got %v", len(dskeys))
-	} else if dskeys[0].IntID() != 2 {
-		t.Errorf("GetAll KeysOnly NZSoS: expected key IntID to be 2, got %v", dskeys[0].IntID())
+	} else if dskeys[0].ID != 2 {
+		t.Errorf("GetAll KeysOnly NZSoS: expected key IntID to be 2, got %v", dskeys[0].ID)
 	} else if len(qiKONZSRes) != 2 {
 		t.Errorf("GetAll KeysOnly NZSoS: expected slice len to be 2, got %v", len(qiKONZSRes))
 	} else if qiKONZSRes[0].Id != 1 {
@@ -1662,12 +1667,12 @@ func TestGoon(t *testing.T) {
 
 	// Test the keys-only query with non-zero slice of pointers to struct
 	qiKONZPRes := []*QueryItem{{Id: 1, Data: "invalid cache"}}
-	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").Filter("data=", "two").KeysOnly(), &qiKONZPRes); err != nil {
+	if dskeys, err := n.GetAll(datastore.NewQuery("QueryItem").FilterField("data", "=", "two").KeysOnly(), &qiKONZPRes, true); err != nil {
 		t.Errorf("GetAll KeysOnly NZSoPtS: unexpected error: %v", err)
 	} else if len(dskeys) != 1 {
 		t.Errorf("GetAll KeysOnly NZSoPtS: expected 1 key, got %v", len(dskeys))
-	} else if dskeys[0].IntID() != 2 {
-		t.Errorf("GetAll KeysOnly NZSoPtS: expected key IntID to be 2, got %v", dskeys[0].IntID())
+	} else if dskeys[0].ID != 2 {
+		t.Errorf("GetAll KeysOnly NZSoPtS: expected key IntID to be 2, got %v", dskeys[0].ID)
 	} else if len(qiKONZPRes) != 2 {
 		t.Errorf("GetAll KeysOnly NZSoPtS: expected slice len to be 2, got %v", len(qiKONZPRes))
 	} else if qiKONZPRes[0].Id != 1 {
@@ -1696,6 +1701,11 @@ func TestGoon(t *testing.T) {
 	} else if qiKONZPRes[1].Data != "two" {
 		t.Errorf("GetMulti NZSoPtS: expected entity data to be 'two', got '%v'", qiKONZPRes[1].Data)
 	}
+
+	_ = n.DeleteMulti([]*datastore.Key{
+		datastore.IDKey("QueryItem", 1, nil),
+		datastore.IDKey("QueryItem", 2, nil),
+	})
 }
 
 type keyTest struct {
@@ -1746,12 +1756,10 @@ type PutGet struct {
 // Using multiple goroutines per http request is recommended here:
 // http://talks.golang.org/2013/highperf.slide#22
 func TestRace(t *testing.T) {
-	c, closeFn, err := aetest.NewContext()
+	g, err := newTestGoon()
 	if err != nil {
-		t.Fatalf("Could not start aetest - %v", err)
+		t.Fatalf("could not create test goon - %v", err)
 	}
-	defer closeFn()
-	g := FromContext(c)
 
 	var hasIdSlice []*HasId
 	for x := 1; x <= 4000; x++ {
@@ -1797,25 +1805,23 @@ func TestRace(t *testing.T) {
 }
 
 func TestPutGet(t *testing.T) {
-	c, closeFn, err := aetest.NewContext()
+	g, err := newTestGoon()
 	if err != nil {
-		t.Fatalf("Could not start aetest - %v", err)
+		t.Fatalf("could not create test goon - %v", err)
 	}
-	defer closeFn()
-	g := FromContext(c)
 
 	key, err := g.Put(&PutGet{ID: 12, Value: 15})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if key.IntID() != 12 {
-		t.Fatal("ID should be 12 but is", key.IntID())
+	if key.ID != 12 {
+		t.Fatal("ID should be 12 but is", key.ID)
 	}
 
 	// Datastore Get
 	dsPutGet := &PutGet{}
-	err = datastore.Get(c,
-		datastore.NewKey(c, "PutGet", "", 12, nil), dsPutGet)
+	err = g.client.Get(g.Context,
+		NewKey("PutGet", "", 12, nil), dsPutGet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1844,18 +1850,10 @@ func prefixKindName(src interface{}) string {
 }
 
 func TestCustomKindName(t *testing.T) {
-	instance, err := aetest.NewInstance(&aetest.Options{StronglyConsistentDatastore: true})
+	g, err := newTestGoon()
 	if err != nil {
-		t.Fatalf("Could not start aetest - %v", err)
+		t.Fatalf("could not create test goon - %v", err)
 	}
-	defer func() { _ = instance.Close() }()
-	req, err := instance.NewRequest("GET", "/", nil)
-	if err != nil {
-		t.Fatalf("Could not start aetest - %v", err)
-	}
-	c := req.Context()
-
-	g := FromContext(c)
 
 	hi := HasId{Name: "Foo"}
 
@@ -1870,16 +1868,13 @@ func TestCustomKindName(t *testing.T) {
 		t.Fatal("HasId King should have a prefix, but instead is, ", kind)
 	}
 
-	_, err = g.Put(&hi)
-
+	key, err := g.Put(&hi)
 	if err != nil {
 		t.Fatal("Should be able to put a record: ", err)
 	}
 
-	reget1 := []HasId{}
-	query := datastore.NewQuery("prefix.HasId")
-	query.GetAll(c, &reget1)
-
+	var reget1 []HasId
+	_, _ = g.client.GetAll(g.Context, datastore.NewQuery("prefix.HasId"), &reget1)
 	if len(reget1) != 1 {
 		t.Fatal("Should have 1 record stored in datastore ", reget1)
 	}
@@ -1887,15 +1882,14 @@ func TestCustomKindName(t *testing.T) {
 	if reget1[0].Name != "Foo" {
 		t.Fatal("Name should be Foo ", reget1[0].Name)
 	}
+	_ = g.Delete(key)
 }
 
 func TestMultis(t *testing.T) {
-	c, closeFn, err := aetest.NewContext()
+	n, err := newTestGoon()
 	if err != nil {
-		t.Fatalf("Could not start aetest - %v", err)
+		t.Fatalf("could not create test goon - %v", err)
 	}
-	defer closeFn()
-	n := FromContext(c)
 
 	testAmounts := []int{1, 999, 1000, 1001, 1999, 2000, 2001, 2510}
 	for _, x := range testAmounts {
@@ -1920,7 +1914,7 @@ func TestMultis(t *testing.T) {
 		putobjects := make([]*HasId, 0, x/100+1)
 		keys := make([]*datastore.Key, x)
 		for y := 0; y < x; y++ {
-			keys[y] = datastore.NewKey(c, "HasId", "", int64(y+1), nil)
+			keys[y] = NewKey("HasId", "", int64(y+1), nil)
 		}
 		if err := n.DeleteMulti(keys); err != nil {
 			t.Fatalf("Error deleting keys - %v", err)
@@ -1943,8 +1937,8 @@ func TestMultis(t *testing.T) {
 			continue
 		}
 
-		merr, ok := err.(appengine.MultiError)
-		if ok {
+		var merr datastore.MultiError
+		if errors.As(err, &merr) {
 			if len(merr) != len(getobjects) {
 				t.Errorf("Should have received a MultiError object of length %d but got length %d instead", len(getobjects), len(merr))
 			}
@@ -1957,7 +1951,7 @@ func TestMultis(t *testing.T) {
 				}
 			}
 		} else if x != 1 {
-			t.Errorf("Did not return a multierror on fetch but when fetching %d objects, received - %v", x, merr)
+			t.Errorf("Did not return a multierror on fetch but when fetching %d objects, received - %v", x, err)
 		}
 	}
 }
@@ -1982,12 +1976,10 @@ type derivedChild struct {
 }
 
 func TestParents(t *testing.T) {
-	c, closeFn, err := aetest.NewContext()
+	n, err := newTestGoon()
 	if err != nil {
-		t.Fatalf("Could not start aetest - %v", err)
+		t.Fatalf("could not create test goon - %v", err)
 	}
-	defer closeFn()
-	n := FromContext(c)
 
 	r := &root{1, 10}
 	rootKey, err := n.Put(r)
@@ -2004,10 +1996,10 @@ func TestParents(t *testing.T) {
 	if nc.Parent == rootKey {
 		t.Fatalf("derived parent key pointer value didn't change")
 	}
-	if !(*datastore.Key)(nc.Parent).Equal(rootKey) {
-		t.Fatalf("parent of key not equal '%s' v '%s'! ", (*datastore.Key)(nc.Parent), rootKey)
+	if !nc.Parent.Equal(rootKey) {
+		t.Fatalf("parent of key not equal '%s' v '%s'! ", nc.Parent, rootKey)
 	}
-	if !nk.Parent().Equal(rootKey) {
+	if !nk.Parent.Equal(rootKey) {
 		t.Fatalf("parent of key not equal '%s' v '%s'! ", nk, rootKey)
 	}
 
@@ -2022,7 +2014,7 @@ func TestParents(t *testing.T) {
 	if !(*datastore.Key)(dc.Parent).Equal(rootKey) {
 		t.Fatalf("parent of key not equal '%s' v '%s'! ", (*datastore.Key)(dc.Parent), rootKey)
 	}
-	if !dk.Parent().Equal(rootKey) {
+	if !dk.Parent.Equal(rootKey) {
 		t.Fatalf("parent of key not equal '%s' v '%s'! ", dk, rootKey)
 	}
 }

@@ -25,7 +25,7 @@ import (
 	"github.com/harishjp/goread/log"
 	mpg "github.com/harishjp/goread/miniprofiler_gae"
 
-	"google.golang.org/appengine/v2/datastore"
+	"cloud.google.com/go/datastore"
 	"google.golang.org/appengine/v2/user"
 )
 
@@ -75,7 +75,7 @@ func ClearFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	del := func(kind string) {
 		defer func() { done <- true }()
 		q := datastore.NewQuery(kind).KeysOnly()
-		keys, err := gn.GetAll(q, nil)
+		keys, err := gn.GetAll(q, nil, true)
 		if err != nil {
 			log.Errorf(c, "err: %v", err.Error())
 			return

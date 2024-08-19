@@ -23,19 +23,19 @@ import (
 	"net/http"
 	"time"
 
+	"cloud.google.com/go/datastore"
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
 	mpg "github.com/harishjp/goread/miniprofiler_gae"
-	"google.golang.org/appengine/v2/datastore"
 )
 
 func AllFeedsOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	gn := goon.FromContext(c)
 	q := datastore.NewQuery(gn.Kind(&Feed{})).KeysOnly()
-	keys, _ := gn.GetAll(q, nil)
+	keys, _ := gn.GetAll(q, nil, true)
 	fs := make([]*Feed, len(keys))
 	for i, k := range keys {
-		fs[i] = &Feed{Url: k.StringID()}
+		fs[i] = &Feed{Url: k.Name}
 	}
 	b := feedsToOpml(fs)
 	w.Header().Add("Content-Type", "text/xml")
@@ -63,7 +63,7 @@ func feedsToOpml(feeds []*Feed) []byte {
 func AllFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	gn := goon.FromContext(c)
 	q := datastore.NewQuery(gn.Kind(&Feed{})).KeysOnly()
-	keys, _ := gn.GetAll(q, nil)
+	keys, _ := gn.GetAll(q, nil, true)
 	templates.ExecuteTemplate(w, "admin-all-feeds.html", keys)
 }
 
@@ -79,11 +79,11 @@ func AdminFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	q = q.Ancestor(fk)
 	q = q.Limit(100)
 	q = q.Order("-" + IDX_COL)
-	keys, _ := gn.GetAll(q, nil)
+	keys, _ := gn.GetAll(q, nil, true)
 	stories := make([]*Story, len(keys))
 	for j, key := range keys {
 		stories[j] = &Story{
-			Id:     key.StringID(),
+			Id:     key.Name,
 			Parent: fk,
 		}
 	}
@@ -134,7 +134,7 @@ func AdminDateFormats(_ mpg.Context, w http.ResponseWriter, _ *http.Request) {
 
 func AdminStats(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	gn := goon.FromContext(c)
-	uc, _ := datastore.NewQuery(gn.Kind(&User{})).Count(c)
+	uc, _ := gn.Count(datastore.NewQuery(gn.Kind(&User{})))
 	templates.ExecuteTemplate(w, "admin-stats.html", struct {
 		Users int
 	}{
@@ -145,7 +145,7 @@ func AdminStats(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 func AdminUser(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	gn := goon.FromContext(c)
 	q := datastore.NewQuery(gn.Kind(&User{})).Limit(1)
-	q = q.Filter("e =", r.FormValue("u"))
+	q = q.FilterField("e", "=", r.FormValue("u"))
 	it := gn.Run(q)
 	var u User
 	ud := UserData{Id: "data"}

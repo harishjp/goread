@@ -26,10 +26,10 @@ import (
 	"strings"
 	"time"
 
+	"cloud.google.com/go/datastore"
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
 	mpg "github.com/harishjp/goread/miniprofiler_gae"
-	"google.golang.org/appengine/v2/datastore"
 	"google.golang.org/appengine/v2/user"
 )
 

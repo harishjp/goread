@@ -23,6 +23,7 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -41,9 +42,10 @@ import (
 	"github.com/harishjp/goread/sanitizer"
 	"golang.org/x/net/html/charset"
 
+	"cloud.google.com/go/datastore"
+	"google.golang.org/api/iterator"
 	"google.golang.org/appengine/v2"
 	"google.golang.org/appengine/v2/blobstore"
-	"google.golang.org/appengine/v2/datastore"
 	"google.golang.org/appengine/v2/taskqueue"
 	"google.golang.org/appengine/v2/user"
 )
@@ -52,7 +54,7 @@ func LoginGoogle(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	if cu := user.Current(c); cu != nil {
 		gn := goon.FromContext(c)
 		u := &User{Id: cu.ID}
-		if err := gn.Get(u); err == datastore.ErrNoSuchEntity {
+		if err := gn.Get(u); errors.Is(err, datastore.ErrNoSuchEntity) {
 			u.Email = cu.Email
 			u.Read = time.Now().Add(-time.Hour * 24)
 			gn.Put(u)
@@ -267,7 +269,7 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	lock := sync.Mutex{}
 	fl := make(map[string][]*Story)
 	q := datastore.NewQuery(gn.Kind(&Story{})).
-		Filter(IDX_COL+" >=", u.Read).
+		FilterField(IDX_COL, ">=", u.Read).
 		KeysOnly().
 		Order("-" + IDX_COL).
 		Limit(250)
@@ -293,11 +295,11 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 					if !f.Date.Before(u.Read) {
 						fk := gn.Key(f)
 						sq := q.Ancestor(fk)
-						keys, _ := gn.GetAll(sq, nil)
+						keys, _ := gn.GetAll(sq, nil, true)
 						stories = make([]*Story, len(keys))
 						for j, key := range keys {
 							stories[j] = &Story{
-								Id:     key.StringID(),
+								Id:     key.Name,
 								Parent: fk,
 							}
 						}
@@ -351,9 +353,9 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 			q := datastore.NewQuery(gn.Kind(&UserStar{})).
 				Ancestor(ud.Parent).
 				KeysOnly().
-				Filter("c >=", u.Read).
+				FilterField("c", ">=", u.Read).
 				Order("-c")
-			keys, _ := gn.GetAll(q, nil)
+			keys, _ := gn.GetAll(q, nil, true)
 			stars = make([]string, len(keys))
 			for i, key := range keys {
 				stars[i] = starID(key)
@@ -376,7 +378,7 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 				stories = stories[:numStoriesLimit]
 				fl = make(map[string][]*Story)
 				for _, s := range stories {
-					fk := s.Parent.StringID()
+					fk := s.Parent.Name
 					p := fl[fk]
 					fl[fk] = append(p, s)
 				}
@@ -672,7 +674,7 @@ func backupOPML(c mpg.Context) {
 	uo := UserOpml{Id: time.Now().UnixNano(), Parent: gn.Key(&u)}
 	buf := &bytes.Buffer{}
 	if gz, err := gzip.NewWriterLevel(buf, gzip.BestCompression); err == nil {
-		gz.Write([]byte(ud.Opml))
+		gz.Write(ud.Opml)
 		gz.Close()
 		uo.Compressed = buf.Bytes()
 	} else {
@@ -689,14 +691,14 @@ func FeedHistory(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	uk := gn.Key(&u)
 	if v := r.FormValue("v"); len(v) == 0 {
 		q := datastore.NewQuery(gn.Kind(&UserOpml{})).Ancestor(uk).KeysOnly()
-		keys, err := gn.GetAll(q, nil)
+		keys, err := gn.GetAll(q, nil, true)
 		if err != nil {
 			serveError(w, err)
 			return
 		}
 		times := make([]string, len(keys))
 		for i, k := range keys {
-			times[i] = strconv.FormatInt(k.IntID(), 10)
+			times[i] = strconv.FormatInt(k.ID, 10)
 		}
 		b, _ := json.Marshal(&times)
 		w.Write(b)
@@ -745,8 +747,8 @@ func GetFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		go c.Step("stars", func(c mpg.Context) {
 			gn := goon.FromContext(c)
 			usk := starKey(c, f.Url, "")
-			q := datastore.NewQuery(gn.Kind(&UserStar{})).Ancestor(gn.Key(usk).Parent()).KeysOnly()
-			keys, _ := gn.GetAll(q, nil)
+			q := datastore.NewQuery(gn.Kind(&UserStar{})).Ancestor(gn.Key(usk).Parent).KeysOnly()
+			keys, _ := gn.GetAll(q, nil, true)
 			stars = make([]string, len(keys))
 			for i, key := range keys {
 				stars[i] = starID(key)
@@ -759,10 +761,10 @@ func GetFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < 20; i++ {
 		if k, err := iter.Next(nil); err == nil {
 			stories = append(stories, &Story{
-				Id:     k.StringID(),
-				Parent: k.Parent(),
+				Id:     k.Name,
+				Parent: k.Parent,
 			})
-		} else if err == datastore.Done {
+		} else if errors.Is(err, iterator.Done) {
 			break
 		} else {
 			serveError(w, err)
@@ -796,7 +798,7 @@ func DeleteAccount(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	u := User{Id: cu.ID}
 	uk := gn.Key(&u)
 	q := datastore.NewQuery("").KeysOnly().Ancestor(uk)
-	keys, err := gn.GetAll(q, nil)
+	keys, err := gn.GetAll(q, nil, true)
 	if err != nil {
 		serveError(w, err)
 		return
@@ -852,13 +854,13 @@ func GetStars(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	for {
 		if k, err := iter.Next(&us); err == nil {
 			stars[starID(k)] = us.Created.Unix()
-			feed := &Feed{Url: k.Parent().StringID()}
+			feed := &Feed{Url: k.Parent.Name}
 			stories = append(stories, &Story{
-				Id:     k.StringID(),
+				Id:     k.Name,
 				Parent: gn.Key(feed),
 			})
 			feedm[feed.Url] = feed
-		} else if err == datastore.Done {
+		} else if errors.Is(err, iterator.Done) {
 			break
 		} else {
 			serveError(w, err)
@@ -874,7 +876,7 @@ func GetStars(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		gn.GetMulti(&stories)
 		smap = make(map[string][]*Story)
 		for _, s := range stories {
-			f := s.Parent.StringID()
+			f := s.Parent.Name
 			smap[f] = append(smap[f], s)
 		}
 	}

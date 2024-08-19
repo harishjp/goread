@@ -21,6 +21,7 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -31,15 +32,16 @@ import (
 	"time"
 
 	"golang.org/x/net/context"
+	"google.golang.org/api/iterator"
 
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
 	mpg "github.com/harishjp/goread/miniprofiler_gae"
 	"golang.org/x/net/html/charset"
 
+	"cloud.google.com/go/datastore"
 	"google.golang.org/appengine/v2"
 	"google.golang.org/appengine/v2/blobstore"
-	"google.golang.org/appengine/v2/datastore"
 	"google.golang.org/appengine/v2/taskqueue"
 )
 
@@ -226,11 +228,11 @@ func SubscribeFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 }
 
 func UpdateFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	q := datastore.NewQuery("F").KeysOnly().Filter("n <=", time.Now())
+	q := datastore.NewQuery("F").KeysOnly().FilterField("n", "<=", time.Now())
 	q = q.Limit(10 * 60 * 2) // 10/s queue, 2 min cron
 	c1, cf := context.WithTimeout(c, time.Minute)
 	defer cf()
-	it := q.Run(c1)
+	it := goon.FromContext(c1).RunNoCache(c1, q)
 	tc := make(chan *taskqueue.Task)
 	done := make(chan bool)
 	i := 0
@@ -238,14 +240,14 @@ func UpdateFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	go taskSender(c, "update-feed", tc, done)
 	for {
 		k, err := it.Next(nil)
-		if err == datastore.Done {
+		if errors.Is(err, iterator.Done) {
 			break
 		} else if err != nil {
 			log.Errorf(c, "next error: %v", err.Error())
 			break
 		}
 		tc <- taskqueue.NewPOSTTask(u, url.Values{
-			"feed": {k.StringID()},
+			"feed": {k.Name},
 		})
 		i++
 	}
@@ -344,7 +346,8 @@ func updateFeed(c mpg.Context, url string, feed *Feed, stories []*Story, updateA
 		getStories[i] = &Story{Id: s.Id, Parent: fk}
 	}
 	err := gn.GetMulti(getStories)
-	if _, ok := err.(appengine.MultiError); err != nil && !ok {
+	var multiError datastore.MultiError
+	if err != nil && !errors.As(err, &multiError) {
 		log.Errorf(c, "GetMulti error: %v", err)
 		return err
 	}
@@ -422,7 +425,7 @@ func UpdateFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	last := len(r.FormValue("last")) > 0
 	f := Feed{Url: url}
 	s := ""
-	if err := gn.Get(&f); err == datastore.ErrNoSuchEntity {
+	if err := gn.Get(&f); errors.Is(err, datastore.ErrNoSuchEntity) {
 		log.Errorf(c, "no such entity - "+url)
 		s += "NSE"
 		return
@@ -479,21 +482,22 @@ func UpdateFeedLast(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 func DeleteBlobs(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	ctx, cf := context.WithTimeout(c, time.Minute)
 	defer cf()
+	g := goon.FromContext(c)
 	q := datastore.NewQuery("__BlobInfo__").KeysOnly()
-	it := q.Run(ctx)
+	it := g.RunNoCache(ctx, q)
 	wg := sync.WaitGroup{}
 	something := false
 	for _i := 0; _i < 20; _i++ {
 		var bk []appengine.BlobKey
 		for i := 0; i < 1000; i++ {
 			k, err := it.Next(nil)
-			if err == datastore.Done {
+			if errors.Is(err, iterator.Done) {
 				break
 			} else if err != nil {
 				log.Errorf(c, "err: %v", err)
 				continue
 			}
-			bk = append(bk, appengine.BlobKey(k.StringID()))
+			bk = append(bk, appengine.BlobKey(k.Name))
 		}
 		if len(bk) == 0 {
 			break
@@ -518,17 +522,18 @@ func DeleteBlobs(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 func DeleteOldFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	ctx, cf := context.WithTimeout(c, time.Minute)
 	defer cf()
-	gn := goon.FromContext(c)
-	q := datastore.NewQuery(gn.Kind(&Feed{})).Filter("n=", timeMax).KeysOnly()
+	gn := goon.FromContext(ctx)
+	q := datastore.NewQuery(gn.Kind(&Feed{})).FilterField("n", "=", timeMax).KeysOnly()
 	if cur, err := datastore.DecodeCursor(r.FormValue("c")); err == nil {
 		q = q.Start(cur)
 	}
-	it := q.Run(ctx)
+
+	it := gn.RunNoCache(ctx, q)
 	done := false
 	var tasks []*taskqueue.Task
 	for i := 0; i < 10000 && len(tasks) < 100; i++ {
 		k, err := it.Next(nil)
-		if err == datastore.Done {
+		if errors.Is(err, iterator.Done) {
 			log.Criticalf(c, "done")
 			done = true
 			break
@@ -537,7 +542,7 @@ func DeleteOldFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		values := make(url.Values)
-		values.Add("f", k.StringID())
+		values.Add("f", k.Name)
 		tasks = append(tasks, taskqueue.NewPOSTTask("/tasks/delete-old-feed", values))
 	}
 	if len(tasks) > 0 {
@@ -571,13 +576,13 @@ func DeleteOldFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := datastore.NewQuery(g.Kind(&Story{})).Ancestor(g.Key(&feed)).KeysOnly()
-	keys, err := q.GetAll(ctx, nil)
+	keys, err := g.GetAll(q, nil, true)
 	if err != nil {
 		log.Criticalf(c, "err: %v", err)
 		return
 	}
 	q = datastore.NewQuery(g.Kind(&StoryContent{})).Ancestor(g.Key(&feed)).KeysOnly()
-	sckeys, err := q.GetAll(ctx, nil)
+	sckeys, err := g.GetAll(q, nil, true)
 	if err != nil {
 		log.Criticalf(c, "err: %v", err)
 		return

@@ -17,15 +17,22 @@
 package goon
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
-	"google.golang.org/appengine/v2/datastore"
+	"cloud.google.com/go/datastore"
+	"google.golang.org/api/iterator"
 )
 
 // Count returns the number of results for the query.
 func (g *Goon) Count(q *datastore.Query) (int, error) {
-	return q.Count(g.Context)
+	result, err := g.client.RunAggregationQuery(g.Context, q.NewAggregationQuery().WithCount("query_count"))
+	if err != nil {
+		return -1, err
+	}
+	return result["query_count"].(int), nil
 }
 
 // GetAll runs the query and returns all the keys that match the query, as well
@@ -37,58 +44,55 @@ func (g *Goon) Count(q *datastore.Query) (int, error) {
 // No data is cached with "keys-only" queries.
 //
 // See: https://developers.google.com/appengine/docs/go/datastore/reference#Query.GetAll
-func (g *Goon) GetAll(q *datastore.Query, dst interface{}) ([]*datastore.Key, error) {
+func (g *Goon) GetAll(q *datastore.Query, dst interface{}, keysOnly bool) ([]*datastore.Key, error) {
+	if dst == nil {
+		return g.client.GetAll(g.Context, q, dst)
+	}
+
 	v := reflect.ValueOf(dst)
-	vLenBefore := 0
-
-	if dst != nil {
-		if v.Kind() != reflect.Ptr {
-			return nil, fmt.Errorf("goon: Expected dst to be a pointer to a slice or nil, got instead: %v", v.Kind())
-		}
-
-		v = v.Elem()
-		if v.Kind() != reflect.Slice {
-			return nil, fmt.Errorf("goon: Expected dst to be a pointer to a slice or nil, got instead: %v", v.Kind())
-		}
-
-		vLenBefore = v.Len()
+	if v.Kind() != reflect.Ptr {
+		return nil, fmt.Errorf("goon: Expected dst to be a pointer to a slice or nil, got instead: %v", v.Kind())
 	}
 
-	keys, err := q.GetAll(g.Context, dst)
-	if err != nil {
-		g.error(err)
-		return nil, err
+	v = v.Elem()
+	if v.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("goon: Expected dst to be a pointer to a slice or nil, got instead: %v", v.Kind())
 	}
-	if dst == nil || len(keys) == 0 {
+
+	vLenBefore := v.Len()
+
+	elemType := v.Type().Elem()
+	ptr := false
+	if elemType.Kind() == reflect.Ptr {
+		elemType = elemType.Elem()
+		ptr = true
+	}
+
+	if elemType.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("goon: Expected struct, got instead: %v", elemType.Kind())
+	}
+
+	var keys []*datastore.Key
+	it := g.client.Run(g.Context, q)
+	for {
+		ev := reflect.New(elemType)
+		key, err := it.Next(ev.Interface())
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+		if !ptr {
+			ev = ev.Elem()
+		}
+		v.Set(reflect.Append(v, ev))
+	}
+	if len(keys) == 0 {
 		return keys, nil
 	}
-
-	keysOnly := ((v.Len() - vLenBefore) != len(keys))
-	updateCache := !g.inTransaction && !keysOnly
-
-	// If this is a keys-only query, we need to fill the slice with zero value elements
-	if keysOnly {
-		elemType := v.Type().Elem()
-		ptr := false
-		if elemType.Kind() == reflect.Ptr {
-			elemType = elemType.Elem()
-			ptr = true
-		}
-
-		if elemType.Kind() != reflect.Struct {
-			return keys, fmt.Errorf("goon: Expected struct, got instead: %v", elemType.Kind())
-		}
-
-		for i := 0; i < len(keys); i++ {
-			ev := reflect.New(elemType)
-			if !ptr {
-				ev = ev.Elem()
-			}
-
-			v.Set(reflect.Append(v, ev))
-		}
-	}
-
+	updateCache := !keysOnly && g.txInfo == nil
 	if updateCache {
 		g.cacheLock.Lock()
 		defer g.cacheLock.Unlock()
@@ -116,11 +120,15 @@ func (g *Goon) GetAll(q *datastore.Query, dst interface{}) ([]*datastore.Key, er
 	return keys, nil
 }
 
+func (g *Goon) RunNoCache(c context.Context, q *datastore.Query) *datastore.Iterator {
+	return g.client.Run(c, q)
+}
+
 // Run runs the query.
 func (g *Goon) Run(q *datastore.Query) *Iterator {
 	return &Iterator{
 		g: g,
-		i: q.Run(g.Context),
+		i: g.client.Run(g.Context, q),
 	}
 }
 
@@ -136,7 +144,7 @@ func (t *Iterator) Cursor() (datastore.Cursor, error) {
 }
 
 // Next returns the entity of the next result. When there are no more results,
-// datastore.Done is returned as the error. If dst is null (for a keys-only
+// iterator.Done is returned as the error. If dst is null (for a keys-only
 // query), nil is returned as the entity.
 //
 // If the query is not keys only and dst is non-nil, it also loads the entity
@@ -157,9 +165,8 @@ func (t *Iterator) Next(dst interface{}) (*datastore.Key, error) {
 
 	if dst != nil {
 		// Update the struct to have correct key info
-		t.g.setStructKey(dst, k)
-
-		if !t.g.inTransaction {
+		err := t.g.setStructKey(dst, k)
+		if err == nil && t.g.txInfo == nil {
 			t.g.cacheLock.Lock()
 			t.g.cache[memkey(k)] = dst
 			t.g.cacheLock.Unlock()
