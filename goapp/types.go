@@ -21,7 +21,7 @@ import (
 	"compress/gzip"
 	"encoding/base64"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/url"
 	"time"
 
@@ -49,7 +49,6 @@ type User struct {
 
 const (
 	AFree = iota
-	ADev
 	APaid
 )
 
@@ -80,7 +79,7 @@ func (uo *UserOpml) opml() []byte {
 		buf := bytes.NewReader(uo.Compressed)
 		if gz, err := gzip.NewReader(buf); err == nil {
 			defer gz.Close()
-			if b, _ := ioutil.ReadAll(gz); err == nil {
+			if b, err := io.ReadAll(gz); err == nil {
 				return b
 			}
 		}
@@ -157,14 +156,14 @@ func (f *Feed) Subscribe(c context.Context) {
 }
 
 func (f *Feed) IsSubscribed() bool {
-	return !ENABLE_PUBSUBHUBBUB || f.Hub == "" || time.Now().Before(f.Subscribed)
+	return true
 }
 
 func (f *Feed) PubSubURL() string {
 	b := base64.URLEncoding.EncodeToString([]byte(f.Url))
 	ru, _ := router.Get("subscribe-callback").URL()
 	ru.Scheme = "http"
-	ru.Host = PUBSUBHUBBUB_HOST
+	ru.Host = ""
 	ru.RawQuery = url.Values{
 		"feed": {b},
 	}.Encode()
@@ -209,7 +208,7 @@ func (sc *StoryContent) content() string {
 		buf := bytes.NewReader(sc.Compressed)
 		if gz, err := gzip.NewReader(buf); err == nil {
 			defer gz.Close()
-			if b, _ := ioutil.ReadAll(gz); err == nil {
+			if b, err := io.ReadAll(gz); err == nil {
 				return string(b)
 			}
 		}

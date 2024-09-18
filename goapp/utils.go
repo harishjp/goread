@@ -19,11 +19,11 @@ package goread
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"html"
 	"html/template"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -65,7 +65,7 @@ func httpGet(ctx context.Context, url string) ([]byte, http.Header, error) {
 	}
 	const sz = 1 << 21 // 2MB?
 	reader := &io.LimitedReader{R: resp.Body, N: sz}
-	data, err := ioutil.ReadAll(reader)
+	data, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -138,35 +138,31 @@ func init() {
 	}
 }
 
-func includes(c mpg.Context, w http.ResponseWriter, r *http.Request) *Includes {
+func includes(c mpg.Context, _ http.ResponseWriter, _ *http.Request) *Includes {
 	i := &Includes{
-		Angular:             Angular,
-		BootstrapCss:        BootstrapCss,
-		BootstrapJs:         BootstrapJs,
-		FontAwesome:         FontAwesome,
-		Jquery:              Jquery,
-		JqueryUI:            JqueryUI,
-		Underscore:          Underscore,
-		MiniProfiler:        c.Includes(),
-		GoogleAnalyticsId:   GOOGLE_ANALYTICS_ID,
-		GoogleAnalyticsHost: GOOGLE_ANALYTICS_HOST,
-		SubURL:              subURL,
-		IsDev:               isDevServer,
-		StripeKey:           STRIPE_KEY,
-		StripePlans:         STRIPE_PLANS,
+		Angular:      Angular,
+		BootstrapCss: BootstrapCss,
+		BootstrapJs:  BootstrapJs,
+		FontAwesome:  FontAwesome,
+		Jquery:       Jquery,
+		JqueryUI:     JqueryUI,
+		Underscore:   Underscore,
+		MiniProfiler: c.Includes(),
+		SubURL:       subURL,
+		IsDev:        isDevServer,
 	}
 
 	if cu := user.Current(c); cu != nil {
 		gn := goon.FromContext(c)
-		user := &User{Id: cu.ID}
-		if err := gn.Get(user); err == nil {
-			i.User = user
+		u := &User{Id: cu.ID}
+		if err := gn.Get(u); err == nil {
+			i.User = u
 			i.IsAdmin = cu.Admin
 
-			if len(user.Messages) > 0 {
-				i.Messages = user.Messages
-				user.Messages = nil
-				gn.Put(user)
+			if len(u.Messages) > 0 {
+				i.Messages = u.Messages
+				u.Messages = nil
+				_, _ = gn.Put(u)
 			}
 
 			/*
@@ -386,13 +382,10 @@ func encodingReader(body []byte, contentType string) (encoding.Encoding, error) 
 	var r io.Reader = bytes.NewReader(body)
 	n, err := io.ReadFull(r, preview)
 	switch {
-	case err == io.ErrUnexpectedEOF:
+	case errors.Is(err, io.ErrUnexpectedEOF):
 		preview = preview[:n]
-		r = bytes.NewReader(preview)
 	case err != nil:
 		return nil, err
-	default:
-		r = io.MultiReader(bytes.NewReader(preview), r)
 	}
 
 	e, _, certain := charset.DetermineEncoding(preview, contentType)
@@ -410,7 +403,7 @@ func defaultCharsetReader(cs string, input io.Reader) (io.Reader, error) {
 	return transform.NewReader(input, e.NewDecoder()), nil
 }
 
-func nilCharsetReader(cs string, input io.Reader) (io.Reader, error) {
+func nilCharsetReader(_ string, input io.Reader) (io.Reader, error) {
 	return input, nil
 }
 
@@ -423,7 +416,7 @@ func ParseFeed(c context.Context, contentType, origUrl, fetchUrl string, body []
 		}
 		if enc != encoding.Nop {
 			cr = nilCharsetReader
-			body, err = ioutil.ReadAll(transform.NewReader(bytes.NewReader(body), enc.NewDecoder()))
+			body, err = io.ReadAll(transform.NewReader(bytes.NewReader(body), enc.NewDecoder()))
 			if err != nil {
 				return nil, nil, err
 			}
@@ -440,10 +433,10 @@ func ParseFeed(c context.Context, contentType, origUrl, fetchUrl string, body []
 		feed, stories, rdferr = parseRDF(c, body, cr)
 	}
 	if feed == nil {
-		log.Warningf(c, "atom parse error: %s", atomerr.Error())
-		log.Warningf(c, "xml parse error: %s", rsserr.Error())
-		log.Warningf(c, "rdf parse error: %s", rdferr.Error())
-		return nil, nil, fmt.Errorf("Could not parse feed data")
+		log.Warningf(c, "atom parse error: %v", atomerr)
+		log.Warningf(c, "xml parse error: %v", rsserr)
+		log.Warningf(c, "rdf parse error: %v", rdferr)
+		return nil, nil, fmt.Errorf("could not parse feed data")
 	}
 	feed.Url = origUrl
 	return parseFix(c, feed, stories, fetchUrl)
@@ -626,7 +619,7 @@ func atomTitle(t *atom.Text) string {
 	return textTitle(t.Body)
 }
 
-func findBestAtomLink(c context.Context, links []atom.Link) string {
+func findBestAtomLink(_ context.Context, links []atom.Link) string {
 	getScore := func(l atom.Link) int {
 		switch {
 		case l.Rel == "hub":
@@ -788,7 +781,7 @@ func updateAverage(f *Feed, previousUpdate time.Time, updateCount int) {
 
 const notViewedDisabled = oldDuration + time.Hour*24*7
 
-var timeMax time.Time = time.Date(3000, time.January, 1, 0, 0, 0, 0, time.UTC)
+var timeMax = time.Date(3000, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 func scheduleNextUpdate(c context.Context, f *Feed) {
 	loadImage(c, f)
@@ -841,8 +834,8 @@ func taskSender(c mpg.Context, queue string, tc chan *taskqueue.Task, done chan 
 	const taskLimit = 100
 	tasks := make([]*taskqueue.Task, 0, taskLimit)
 	send := func() {
-		taskqueue.AddMulti(c, tasks, queue)
-		log.Infof(c, "added %v tasks", len(tasks))
+		_, err := taskqueue.AddMulti(c, tasks, queue)
+		log.Infof(c, "added %v tasks, %v", len(tasks), err)
 		tasks = tasks[0:0]
 	}
 	for t := range tc {

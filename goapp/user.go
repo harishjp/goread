@@ -25,7 +25,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"sort"
@@ -129,7 +129,7 @@ func ImportOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		blobstore.Delete(c, file.BlobKey)
 	}
 
-	fdata, err := ioutil.ReadAll(fr)
+	fdata, err := io.ReadAll(fr)
 	if err != nil {
 		del()
 		serveError(w, err)
@@ -142,7 +142,7 @@ func ImportOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		for _, f := range zb.File {
 			if strings.HasSuffix(f.FileHeader.Name, "Reader/subscriptions.xml") {
 				if rc, rerr := f.Open(); rerr == nil {
-					if fb, ferr := ioutil.ReadAll(rc); ferr == nil {
+					if fb, ferr := io.ReadAll(rc); ferr == nil {
 						fdata = fb
 						break
 					}
@@ -225,21 +225,6 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		l += ", u.Read"
 	}
 	trialRemaining := 0
-	if STRIPE_KEY != "" && ud.Opml != nil && u.Account == AFree && u.Until.Before(time.Now()) {
-		if u.Created.IsZero() {
-			u.Created = time.Now()
-			putU = true
-		} else if time.Since(u.Created) > accountFreeDuration {
-			b, _ := json.Marshal(struct {
-				ErrorSubscription bool
-			}{
-				true,
-			})
-			w.Write(b)
-			return
-		}
-		trialRemaining = int((accountFreeDuration-time.Since(u.Created))/time.Hour/24) + 1
-	}
 	read := make(Read)
 	var uf Opml
 	c.Step("unmarshal user data", func(c mpg.Context) {
@@ -508,7 +493,7 @@ func MarkRead(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	read := make(Read)
 	var stories []readStory
 	defer r.Body.Close()
-	b, _ := ioutil.ReadAll(r.Body)
+	b, _ := io.ReadAll(r.Body)
 	if err := json.Unmarshal(b, &stories); err != nil {
 		serveError(w, err)
 		return
@@ -566,7 +551,7 @@ func GetContents(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		Story string
 	}
 	defer r.Body.Close()
-	b, _ := ioutil.ReadAll(r.Body)
+	b, _ := io.ReadAll(r.Body)
 	if err := json.Unmarshal(b, &reqs); err != nil {
 		serveError(w, err)
 		return

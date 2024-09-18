@@ -52,7 +52,7 @@ func init() {
 }
 
 // DefaultShouldRecord will record a request based on RecordFraction.
-func DefaultShouldRecord(r *http.Request) bool {
+func DefaultShouldRecord(_ *http.Request) bool {
 	if RecordFraction >= 1.0 {
 		return true
 	}

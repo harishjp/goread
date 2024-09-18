@@ -4,20 +4,6 @@ import (
 	"time"
 )
 
-var (
-	ENABLE_PUBSUBHUBBUB bool = false
-	STRIPE_PLANS             = []Plan{}
-)
-
-const (
-	GOOGLE_ANALYTICS_ID   = ""
-	GOOGLE_ANALYTICS_HOST = ""
-	PUBSUBHUBBUB_HOST     = "" // e.g., "www.goread.io"
-	STRIPE_KEY            = ""
-	STRIPE_SECRET         = ""
-	STRIPE_PLAN           = ""
-)
-
 const (
 	UpdateMin         = time.Minute * 20
 	UpdateMax         = time.Hour * 12

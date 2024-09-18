@@ -23,7 +23,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -166,7 +166,7 @@ func SubscribeCallback(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	} else if !f.NotViewed() {
 		log.Infof(c, "push: %v", f.Url)
 		defer r.Body.Close()
-		b, _ := ioutil.ReadAll(r.Body)
+		b, _ := io.ReadAll(r.Body)
 		nf, ss, err := ParseFeed(c, r.Header.Get("Content-Type"), f.Url, f.Url, b)
 		if err != nil {
 			log.Errorf(c, "parse error: %v", err)
@@ -184,14 +184,11 @@ func SubscribeCallback(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 func SubscribeFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	gn := goon.FromContext(c)
 	f := Feed{Url: r.FormValue("feed")}
-	s := ""
 	if err := gn.Get(&f); err != nil {
 		log.Errorf(c, "%v: %v", err, f.Url)
 		serveError(w, err)
-		s += "err"
 		return
 	} else if f.IsSubscribed() {
-		s += "is subscribed"
 		return
 	}
 	u := url.Values{}
@@ -218,11 +215,9 @@ func SubscribeFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 			log.Errorf(c, "resp: %v - %v", f.Url, resp.Status)
 			log.Errorf(c, "%s", resp.Body)
 		}
-		s += "resp err"
 		resp.Body.Close()
 	} else {
 		log.Infof(c, "subscribed: %v", f.Url)
-		s += "success"
 		resp.Body.Close()
 	}
 }

@@ -31,22 +31,24 @@ func main() {
 import (
 	"os"
 
-  "google.golang.org/appengine/v2"
-  _ "github.com/harishjp/goread/goapp"
-  _ "github.com/harishjp/goread/appstats"
+	_ "github.com/harishjp/goread/appstats"
+	_ "github.com/harishjp/goread/goapp"
+	"google.golang.org/appengine/v2"
 
-	stackdriver "github.com/andyfusniak/stackdriver-gae-logrus-plugin"
+	"github.com/andyfusniak/stackdriver-gae-logrus-plugin"
 	log "github.com/sirupsen/logrus"
 )
 
 func registerLog() {
-  projectId := os.Getenv("GOOGLE_CLOUD_PROJECT")
-  formatter := stackdriver.GAEStandardFormatter(stackdriver.WithProjectID(projectId))
-  log.SetFormatter(formatter)
-  log.SetOutput(os.Stdout)
-  log.SetLevel(log.DebugLevel)
+	formatter := stackdriver.GAEStandardFormatter()
+	if projectId := os.Getenv("GOOGLE_CLOUD_PROJECT"); projectId != "" {
+		formatter = stackdriver.GAEStandardFormatter(stackdriver.WithProjectID(projectId))
+	}
+	log.SetFormatter(formatter)
+	log.SetOutput(os.Stdout)
+	log.SetLevel(log.DebugLevel)
 }
 
 func main() {
-  appengine.Main()
+	appengine.Main()
 }

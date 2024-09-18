@@ -128,7 +128,7 @@ func (g *Goon) setStructKey(src interface{}, key *datastore.Key) error {
 	k = t.Kind()
 
 	if k != reflect.Struct {
-		return fmt.Errorf(fmt.Sprintf("goon: Expected struct, got instead: %v", k))
+		return fmt.Errorf("goon: Expected struct, got instead: %v", k)
 	}
 
 	idSet := false

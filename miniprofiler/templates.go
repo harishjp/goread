@@ -2,7 +2,7 @@ package miniprofiler
 
 import (
 	"html/template"
-	"io/ioutil"
+	"io"
 	"strings"
 )
 
@@ -14,11 +14,11 @@ func parseInclude(name string, fname string) *template.Template {
 	if err != nil {
 		panic(err)
 	}
-	t, err := ioutil.ReadAll(f)
+	t, err := io.ReadAll(f)
 	if err != nil {
 		panic(err)
 	}
-	f.Close()
+	_ = f.Close()
 	s := string(t)
 	s = strings.Replace(s, "{", "{{.", -1)
 	s = strings.Replace(s, "}", "}}", -1)

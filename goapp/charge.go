@@ -20,7 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -106,7 +106,7 @@ func Charge(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	} else if resp.StatusCode != http.StatusOK {
 		var se StripeError
 		defer resp.Body.Close()
-		b, _ := ioutil.ReadAll(resp.Body)
+		b, _ := io.ReadAll(resp.Body)
 		if err := json.Unmarshal(b, &se); err == nil {
 			serveError(w, fmt.Errorf(se.Error.Message))
 		} else {
@@ -127,7 +127,7 @@ func Charge(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 func setCharge(c mpg.Context, r *http.Response) (*UserCharge, error) {
 	var sc StripeCustomer
 	defer r.Body.Close()
-	b, err := ioutil.ReadAll(r.Body)
+	b, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -237,6 +237,6 @@ func stripe(c mpg.Context, method, urlStr, body string) (*http.Response, error) 
 	if err != nil {
 		return nil, err
 	}
-	req.SetBasicAuth(STRIPE_SECRET, "")
+	req.SetBasicAuth("", "")
 	return http.DefaultClient.Do(req)
 }

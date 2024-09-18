@@ -250,119 +250,35 @@ func getIVItemCopy(_ *Goon, index int) *ivItem {
 	ivi := ivItems[index]
 
 	// .. but pointer based types require extra work
-	ivi.SliceTypes.Int = []int{}
-	for _, v := range ivItems[index].SliceTypes.Int {
-		ivi.SliceTypes.Int = append(ivi.SliceTypes.Int, v)
-	}
+	ivi.SliceTypes.Int = append([]int{}, ivi.SliceTypes.Int...)
+	ivi.SliceTypes.Int8 = append([]int8{}, ivi.SliceTypes.Int8...)
+	ivi.SliceTypes.Int16 = append([]int16{}, ivi.SliceTypes.Int16...)
+	ivi.SliceTypes.Int32 = append([]int32{}, ivi.SliceTypes.Int32...)
+	ivi.SliceTypes.Int64 = append([]int64{}, ivi.SliceTypes.Int64...)
+	ivi.SliceTypes.Float32 = append([]float32{}, ivi.SliceTypes.Float32...)
+	ivi.SliceTypes.Float64 = append([]float64{}, ivi.SliceTypes.Float64...)
+	ivi.SliceTypes.Bool = append([]bool{}, ivi.SliceTypes.Bool...)
+	ivi.SliceTypes.String = append([]string{}, ivi.SliceTypes.String...)
+	ivi.SliceTypes.IntC = append([]ivItemInt{}, ivi.SliceTypes.IntC...)
+	ivi.SliceTypes.Int8C = append([]ivItemInt8{}, ivi.SliceTypes.Int8C...)
+	ivi.SliceTypes.Int16C = append([]ivItemInt16{}, ivi.SliceTypes.Int16C...)
+	ivi.SliceTypes.Int32C = append([]ivItemInt32{}, ivi.SliceTypes.Int32C...)
+	ivi.SliceTypes.Int64C = append([]ivItemInt64{}, ivi.SliceTypes.Int64C...)
+	ivi.SliceTypes.Float32C = append([]ivItemFloat32{}, ivi.SliceTypes.Float32C...)
+	ivi.SliceTypes.Float64C = append([]ivItemFloat64{}, ivi.SliceTypes.Float64C...)
+	ivi.SliceTypes.BoolC = append([]ivItemBool{}, ivi.SliceTypes.BoolC...)
+	ivi.SliceTypes.StringC = append([]ivItemString{}, ivi.SliceTypes.StringC...)
+	ivi.SliceTypes.DeepInt = append([]ivItemDeepInt{}, ivi.SliceTypes.DeepInt...)
 
-	ivi.SliceTypes.Int8 = []int8{}
-	for _, v := range ivItems[index].SliceTypes.Int8 {
-		ivi.SliceTypes.Int8 = append(ivi.SliceTypes.Int8, v)
+	ivi.ByteSlice = append([]byte{}, ivi.ByteSlice...)
+	var bsslice [][]byte
+	for _, v := range ivi.BSSlice {
+		var vCopy = append([]byte{}, v...)
+		bsslice = append(bsslice, vCopy)
 	}
+	ivi.BSSlice = bsslice
 
-	ivi.SliceTypes.Int16 = []int16{}
-	for _, v := range ivItems[index].SliceTypes.Int16 {
-		ivi.SliceTypes.Int16 = append(ivi.SliceTypes.Int16, v)
-	}
-
-	ivi.SliceTypes.Int32 = []int32{}
-	for _, v := range ivItems[index].SliceTypes.Int32 {
-		ivi.SliceTypes.Int32 = append(ivi.SliceTypes.Int32, v)
-	}
-
-	ivi.SliceTypes.Int64 = []int64{}
-	for _, v := range ivItems[index].SliceTypes.Int64 {
-		ivi.SliceTypes.Int64 = append(ivi.SliceTypes.Int64, v)
-	}
-
-	ivi.SliceTypes.Float32 = []float32{}
-	for _, v := range ivItems[index].SliceTypes.Float32 {
-		ivi.SliceTypes.Float32 = append(ivi.SliceTypes.Float32, v)
-	}
-
-	ivi.SliceTypes.Float64 = []float64{}
-	for _, v := range ivItems[index].SliceTypes.Float64 {
-		ivi.SliceTypes.Float64 = append(ivi.SliceTypes.Float64, v)
-	}
-
-	ivi.SliceTypes.Bool = []bool{}
-	for _, v := range ivItems[index].SliceTypes.Bool {
-		ivi.SliceTypes.Bool = append(ivi.SliceTypes.Bool, v)
-	}
-
-	ivi.SliceTypes.String = []string{}
-	for _, v := range ivItems[index].SliceTypes.String {
-		ivi.SliceTypes.String = append(ivi.SliceTypes.String, v)
-	}
-
-	ivi.SliceTypes.IntC = []ivItemInt{}
-	for _, v := range ivItems[index].SliceTypes.IntC {
-		ivi.SliceTypes.IntC = append(ivi.SliceTypes.IntC, v)
-	}
-
-	ivi.SliceTypes.Int8C = []ivItemInt8{}
-	for _, v := range ivItems[index].SliceTypes.Int8C {
-		ivi.SliceTypes.Int8C = append(ivi.SliceTypes.Int8C, v)
-	}
-
-	ivi.SliceTypes.Int16C = []ivItemInt16{}
-	for _, v := range ivItems[index].SliceTypes.Int16C {
-		ivi.SliceTypes.Int16C = append(ivi.SliceTypes.Int16C, v)
-	}
-
-	ivi.SliceTypes.Int32C = []ivItemInt32{}
-	for _, v := range ivItems[index].SliceTypes.Int32C {
-		ivi.SliceTypes.Int32C = append(ivi.SliceTypes.Int32C, v)
-	}
-
-	ivi.SliceTypes.Int64C = []ivItemInt64{}
-	for _, v := range ivItems[index].SliceTypes.Int64C {
-		ivi.SliceTypes.Int64C = append(ivi.SliceTypes.Int64C, v)
-	}
-
-	ivi.SliceTypes.Float32C = []ivItemFloat32{}
-	for _, v := range ivItems[index].SliceTypes.Float32C {
-		ivi.SliceTypes.Float32C = append(ivi.SliceTypes.Float32C, v)
-	}
-
-	ivi.SliceTypes.Float64C = []ivItemFloat64{}
-	for _, v := range ivItems[index].SliceTypes.Float64C {
-		ivi.SliceTypes.Float64C = append(ivi.SliceTypes.Float64C, v)
-	}
-
-	ivi.SliceTypes.BoolC = []ivItemBool{}
-	for _, v := range ivItems[index].SliceTypes.BoolC {
-		ivi.SliceTypes.BoolC = append(ivi.SliceTypes.BoolC, v)
-	}
-
-	ivi.SliceTypes.StringC = []ivItemString{}
-	for _, v := range ivItems[index].SliceTypes.StringC {
-		ivi.SliceTypes.StringC = append(ivi.SliceTypes.StringC, v)
-	}
-
-	ivi.SliceTypes.DeepInt = []ivItemDeepInt{}
-	for _, v := range ivItems[index].SliceTypes.DeepInt {
-		ivi.SliceTypes.DeepInt = append(ivi.SliceTypes.DeepInt, v)
-	}
-
-	ivi.ByteSlice = []byte{}
-	for _, v := range ivItems[index].ByteSlice {
-		ivi.ByteSlice = append(ivi.ByteSlice, v)
-	}
-
-	ivi.BSSlice = [][]byte{}
-	for _, v := range ivItems[index].BSSlice {
-		var vCopy []byte
-		for _, v := range v {
-			vCopy = append(vCopy, v)
-		}
-		ivi.BSSlice = append(ivi.BSSlice, vCopy)
-	}
-
-	ivi.TimeSlice = []time.Time{}
-	for _, v := range ivItems[index].TimeSlice {
-		ivi.TimeSlice = append(ivi.TimeSlice, v)
-	}
+	ivi.TimeSlice = append([]time.Time{}, ivi.TimeSlice...)
 
 	ivi.Key = NewKey(ivItems[index].Key.Kind, ivItems[index].Key.Name, ivItems[index].Key.ID, nil)
 
@@ -384,16 +300,11 @@ func getIVItemCopy(_ *Goon, index int) *ivItem {
 		}
 	}
 
-	ivi.BKSlice = []appengine.BlobKey{}
-	for _, v := range ivItems[index].BKSlice {
-		ivi.BKSlice = append(ivi.BKSlice, v)
-	}
+	ivi.BKSlice = append([]appengine.BlobKey{}, ivi.BKSlice...)
 
 	ivi.Sub = ivItemSub{}
 	ivi.Sub.Data = ivItems[index].Sub.Data
-	for _, v := range ivItems[index].Sub.Ints {
-		ivi.Sub.Ints = append(ivi.Sub.Ints, v)
-	}
+	ivi.Sub.Ints = append(ivi.Sub.Ints, ivItems[index].Sub.Ints...)
 
 	ivi.Subs = []ivItemSubs{}
 	for _, sub := range ivItems[index].Subs {

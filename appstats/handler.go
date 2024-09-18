@@ -19,8 +19,8 @@ package appstats
 import (
 	"fmt"
 	"html/template"
-	"io/ioutil"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -229,7 +229,7 @@ func details(w http.ResponseWriter, r *http.Request) {
 
 	item, ok := fullStatsCache.Get(key)
 	if !ok {
-		templates.ExecuteTemplate(w, "details", v)
+		_ = templates.ExecuteTemplate(w, "details", v)
 		return
 	}
 
@@ -277,7 +277,7 @@ func file(w http.ResponseWriter, r *http.Request) {
 	n := r.URL.Query().Get("n")
 	lineno, _ := strconv.Atoi(n)
 
-	f, err := ioutil.ReadFile(fname)
+	f, err := os.ReadFile(fname)
 	if err != nil {
 		serveError(w, err)
 		return
@@ -320,6 +320,6 @@ func static(w http.ResponseWriter, r *http.Request) {
 		expires := time.Now().Add(time.Hour)
 		h.Set("Expires", expires.Format(time.RFC1123))
 
-		w.Write(v)
+		_, _ = w.Write(v)
 	}
 }

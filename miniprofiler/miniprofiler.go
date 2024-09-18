@@ -59,8 +59,6 @@ var (
 	TrivialMilliseconds = 12.0
 
 	Version = "3.0.11"
-
-	staticFiles map[string][]byte
 )
 
 const (
@@ -78,7 +76,7 @@ func init() {
 	http.Handle(PATH, http.StripPrefix(PATH, http.HandlerFunc(MiniProfilerHandler)))
 }
 
-// miniProfilerHandler serves requests to the /mini-profiler-resources/
+// MiniProfilerHandler serves requests to the /mini-profiler-resources/
 // path. For use only by miniprofiler helper libraries.
 func MiniProfilerHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "results" {
@@ -209,25 +207,6 @@ func sentenceCase(s string) string {
 		buf.WriteRune(v)
 	}
 	return buf.String()
-}
-
-func static(w http.ResponseWriter, r *http.Request) {
-	fname := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
-	if v, present := staticFiles[fname]; present {
-		h := w.Header()
-
-		if strings.HasSuffix(r.URL.Path, ".css") {
-			h.Set("Content-type", "text/css")
-		} else if strings.HasSuffix(r.URL.Path, ".js") {
-			h.Set("Content-type", "text/javascript")
-		}
-
-		h.Set("Cache-Control", "public, max-age=expiry")
-		expires := time.Now().Add(time.Hour)
-		h.Set("Expires", expires.Format(time.RFC1123))
-
-		w.Write(v)
-	}
 }
 
 // Includes renders the JavaScript includes for this request, if enabled.

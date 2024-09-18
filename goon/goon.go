@@ -510,7 +510,8 @@ func realError(multiError datastore.MultiError) error {
 	}
 	// all errors are the same
 	// some errors are *always* returned in MultiError form from the datastore
-	if _, ok := init.(*datastore.ErrFieldMismatch); ok { // returned in GetMulti
+	var errFieldMismatch *datastore.ErrFieldMismatch
+	if errors.As(init, &errFieldMismatch) { // returned in GetMulti
 		return multiError
 	}
 	if errors.Is(init, datastore.ErrInvalidEntityType) || // returned in GetMulti

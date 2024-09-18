@@ -18,11 +18,12 @@ package goread
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
-	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -55,7 +56,7 @@ func init() {
 		); err != nil {
 		log.Fatal(err)
 	}
-	mobileIndex, err = ioutil.ReadFile("app/static/index.html")
+	mobileIndex, err = os.ReadFile("app/static/index.html")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -126,16 +127,6 @@ func RegisterHandlers() {
 
 	//router.Handle("/tasks/delete-blobs", mpg.NewHandler(DeleteBlobs)).Name("delete-blobs")
 
-	if len(PUBSUBHUBBUB_HOST) > 0 {
-		u := url.URL{
-			Scheme:   "http",
-			Host:     PUBSUBHUBBUB_HOST,
-			Path:     routeUrl("add-subscription"),
-			RawQuery: url.Values{"url": {"{url}"}}.Encode(),
-		}
-		subURL = u.String()
-	}
-
 	if !isDevServer {
 		return
 	}
@@ -191,7 +182,7 @@ func addFeed(c mpg.Context, userid string, outline *OpmlOutline) error {
 	o.XmlUrl = fu.String()
 
 	f := Feed{Url: o.XmlUrl}
-	if err := gn.Get(&f); err == datastore.ErrNoSuchEntity {
+	if err := gn.Get(&f); errors.Is(err, datastore.ErrNoSuchEntity) {
 		if feed, stories, err := fetchFeed(c, o.XmlUrl, o.XmlUrl); err != nil {
 			return fmt.Errorf("could not add feed %s: %v", o.XmlUrl, err)
 		} else {
@@ -200,7 +191,9 @@ func addFeed(c mpg.Context, userid string, outline *OpmlOutline) error {
 			f.Checked = f.Updated
 			f.NextUpdate = f.Updated
 			f.LastViewed = time.Now()
-			gn.Put(&f)
+			if _, err := gn.Put(&f); err != nil {
+				log.Warningf(c, "could not add feed %s: %v", o.XmlUrl, err)
+			}
 			for _, s := range stories {
 				s.Created = s.Published
 			}
@@ -227,9 +220,12 @@ func addFeed(c mpg.Context, userid string, outline *OpmlOutline) error {
 	return nil
 }
 
-func mergeUserOpml(c context.Context, ud *UserData, outlines ...*OpmlOutline) error {
+func mergeUserOpml(_ context.Context, ud *UserData, outlines ...*OpmlOutline) error {
 	var fs Opml
-	json.Unmarshal(ud.Opml, &fs)
+	err := json.Unmarshal(ud.Opml, &fs)
+	if err != nil {
+		return fmt.Errorf("error reading user %s opml: %w", ud.Id, err)
+	}
 	urls := make(map[string]bool)
 
 	for _, o := range fs.Outline {

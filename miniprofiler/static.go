@@ -3,7 +3,7 @@ package miniprofiler
 import (
 	"bytes"
 	"compress/gzip"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"path"
@@ -54,7 +54,7 @@ func (_esc_staticFS) Open(name string) (http.File, error) {
 		if err != nil {
 			return
 		}
-		f.data, err = ioutil.ReadAll(gr)
+		f.data, err = io.ReadAll(gr)
 	})
 	if err != nil {
 		return nil, err
