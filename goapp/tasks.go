@@ -26,6 +26,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,18 +41,14 @@ import (
 	"golang.org/x/net/html/charset"
 
 	"cloud.google.com/go/datastore"
-	"google.golang.org/appengine/v2"
-	"google.golang.org/appengine/v2/blobstore"
 	"google.golang.org/appengine/v2/taskqueue"
 )
 
 func ImportOpmlTask(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	gn := goon.FromContext(c)
 	userid := r.FormValue("user")
-	bk := r.FormValue("key")
-	del := func() {
-		blobstore.Delete(c, appengine.BlobKey(bk))
-	}
+	filePath := r.FormValue("key")
+	defer os.Remove(filePath)
 
 	var skip int
 	if s, err := strconv.Atoi(r.FormValue("skip")); err == nil {
@@ -59,13 +56,18 @@ func ImportOpmlTask(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	}
 	log.Debugf(c, "reader import for %v, skip %v", userid, skip)
 
-	d := xml.NewDecoder(blobstore.NewReader(c, appengine.BlobKey(bk)))
+	file, err := os.Open(filePath)
+	if err != nil {
+		log.Warningf(c, "file open failed: %v", err.Error())
+		return
+	}
+
+	d := xml.NewDecoder(file)
 	d.CharsetReader = charset.NewReaderLabel
 	d.Strict = false
 	opml := Opml{}
-	err := d.Decode(&opml)
+	err = d.Decode(&opml)
 	if err != nil {
-		del()
 		log.Warningf(c, "gob decode failed: %v", err.Error())
 		return
 	}
@@ -129,13 +131,12 @@ func ImportOpmlTask(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 
 	if len(userOpml) == IMPORT_LIMIT {
 		task := taskqueue.NewPOSTTask(routeUrl("import-opml-task"), url.Values{
-			"key":  {bk},
+			"key":  {filePath},
 			"user": {userid},
 			"skip": {strconv.Itoa(skip + IMPORT_LIMIT)},
 		})
 		taskqueue.Add(c, task, "import-reader")
 	} else {
-		del()
 		log.Infof(c, "opml import done: %v", userid)
 	}
 }
@@ -472,46 +473,6 @@ func UpdateFeedLast(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	}
 	f.LastViewed = time.Now()
 	gn.Put(&f)
-}
-
-func DeleteBlobs(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	ctx, cf := context.WithTimeout(c, time.Minute)
-	defer cf()
-	g := goon.FromContext(c)
-	q := datastore.NewQuery("__BlobInfo__").KeysOnly()
-	it := g.RunNoCache(ctx, q)
-	wg := sync.WaitGroup{}
-	something := false
-	for _i := 0; _i < 20; _i++ {
-		var bk []appengine.BlobKey
-		for i := 0; i < 1000; i++ {
-			k, err := it.Next(nil)
-			if errors.Is(err, iterator.Done) {
-				break
-			} else if err != nil {
-				log.Errorf(c, "err: %v", err)
-				continue
-			}
-			bk = append(bk, appengine.BlobKey(k.Name))
-		}
-		if len(bk) == 0 {
-			break
-		}
-		go func(bk []appengine.BlobKey) {
-			something = true
-			log.Errorf(c, "deleteing %v blobs", len(bk))
-			err := blobstore.DeleteMulti(ctx, bk)
-			if err != nil {
-				log.Errorf(c, "blobstore delete err: %v", err)
-			}
-			wg.Done()
-		}(bk)
-		wg.Add(1)
-	}
-	wg.Wait()
-	if something {
-		taskqueue.Add(c, taskqueue.NewPOSTTask("/tasks/delete-blobs", nil), "")
-	}
 }
 
 func DeleteOldFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {

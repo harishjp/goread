@@ -104,7 +104,6 @@ func RegisterHandlers() {
 	router.Handle("/user/get-contents", wrap(GetContents)).Name("get-contents")
 	router.Handle("/user/get-feed", wrap(GetFeed)).Name("get-feed")
 	router.Handle("/user/get-stars", wrap(GetStars)).Name("get-stars")
-	router.Handle("/user/import/get-url", wrap(UploadUrl)).Name("upload-url")
 	router.Handle("/user/import/opml", wrap(ImportOpml)).Name("import-opml")
 	router.Handle("/user/list-feeds", wrap(ListFeeds)).Name("list-feeds")
 	router.Handle("/user/mark-read", wrap(MarkRead)).Name("mark-read")

@@ -30,7 +30,6 @@ import (
 
 	"cloud.google.com/go/datastore"
 	"golang.org/x/net/context"
-	"google.golang.org/appengine/v2"
 	"google.golang.org/appengine/v2/taskqueue"
 	"google.golang.org/appengine/v2/user"
 )
@@ -230,13 +229,6 @@ type Opml struct {
 	Version string         `xml:"version,attr"`
 	Title   string         `xml:"head>title"`
 	Outline []*OpmlOutline `xml:"body>outline"`
-}
-
-type Image struct {
-	_kind string            `goon:"kind,I"`
-	Id    string            `datastore:"-" goon:"id"`
-	Blob  appengine.BlobKey `datastore:"b,noindex"`
-	Url   string            `datastore:"u,noindex"`
 }
 
 type Stories []*Story

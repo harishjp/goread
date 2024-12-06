@@ -35,13 +35,11 @@ goReadAppModule.controller('GoreadCtrl', function($scope, $http, $timeout, $wind
 	$scope.importOpml = function() {
 		$scope.shown = 'feeds';
 		$scope.loading++;
-		$scope.http('GET', $('#import-opml-form').attr('data-upload-url'))
-			.then(processImport);
+		processImport();
 	};
 
-	function processImport(data) {
+	function processImport() {
 		var f = $('#import-opml-form');
-		f.prop('action', data.data);
 		f.ajaxSubmit({
 			clearForm: true,
 			error: function(jqXHR, textStatus, errorThrown) {

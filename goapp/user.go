@@ -17,7 +17,6 @@
 package goread
 
 import (
-	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"encoding/gob"
@@ -28,9 +27,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -45,7 +44,6 @@ import (
 	"cloud.google.com/go/datastore"
 	"google.golang.org/api/iterator"
 	"google.golang.org/appengine/v2"
-	"google.golang.org/appengine/v2/blobstore"
 	"google.golang.org/appengine/v2/taskqueue"
 	"google.golang.org/appengine/v2/user"
 )
@@ -94,15 +92,6 @@ func Logout(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, routeUrl("main"), http.StatusFound)
 }
 
-func UploadUrl(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	uploadURL, err := blobstore.UploadURL(c, routeUrl("import-opml"), nil)
-	if err != nil {
-		serveError(w, err)
-		return
-	}
-	w.Write([]byte(uploadURL.String()))
-}
-
 func ImportOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	cu := user.Current(c)
 	gn := goon.FromContext(c)
@@ -112,51 +101,36 @@ func ImportOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	backupOPML(c)
-
-	blobs, _, err := blobstore.ParseUpload(r)
+	src, _, err := r.FormFile("file")
 	if err != nil {
 		serveError(w, err)
 		return
 	}
-	fs := blobs["file"]
-	if len(fs) == 0 {
-		serveError(w, fmt.Errorf("no uploaded file found"))
+	defer src.Close()
+
+	// Maybe move this to use cloud-store or some intermediate table.
+	dest, err := os.CreateTemp("", "opml-*.xml")
+	if err != nil {
+		serveError(w, err)
 		return
 	}
-	file := fs[0]
-	fr := blobstore.NewReader(c, file.BlobKey)
 	del := func() {
-		blobstore.Delete(c, file.BlobKey)
+		_ = os.Remove(dest.Name())
 	}
 
-	fdata, err := io.ReadAll(fr)
-	if err != nil {
+	if _, err = io.Copy(dest, src); err != nil {
 		del()
 		serveError(w, err)
 		return
 	}
 
-	buf := bytes.NewReader(fdata)
-	// attempt to extract from google reader takeout zip
-	if zb, zerr := zip.NewReader(buf, int64(len(fdata))); zerr == nil {
-		for _, f := range zb.File {
-			if strings.HasSuffix(f.FileHeader.Name, "Reader/subscriptions.xml") {
-				if rc, rerr := f.Open(); rerr == nil {
-					if fb, ferr := io.ReadAll(rc); ferr == nil {
-						fdata = fb
-						break
-					}
-				}
-			}
-		}
-	}
-
 	// Preflight the OPML, so we can report any errors.
-	d := xml.NewDecoder(bytes.NewReader(fdata))
+	dest.Seek(0, 0)
+	d := xml.NewDecoder(dest)
 	d.CharsetReader = charset.NewReaderLabel
 	d.Strict = false
 	opml := Opml{}
-	if err := d.Decode(&opml); err != nil {
+	if err = d.Decode(&opml); err != nil {
 		del()
 		serveError(w, err)
 		log.Errorf(c, "opml error: %v", err.Error())
@@ -164,7 +138,7 @@ func ImportOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	task := taskqueue.NewPOSTTask(routeUrl("import-opml-task"), url.Values{
-		"key":  {string(file.BlobKey)},
+		"key":  {dest.Name()},
 		"user": {cu.ID},
 	})
 	taskqueue.Add(c, task, "import-reader")

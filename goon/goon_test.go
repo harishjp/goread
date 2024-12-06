@@ -26,7 +26,6 @@ import (
 
 	"cloud.google.com/go/datastore"
 	"google.golang.org/api/iterator"
-	"google.golang.org/appengine/v2"
 )
 
 // *[]S, *[]*S, *[]I, []S, []*S, []I
@@ -50,6 +49,8 @@ const (
 	ivModeLocalcacheAndMemcacheAndDatastore
 	ivModeTotal
 )
+
+type BlobKey string
 
 // Have a bunch of different supported types to detect any wild errors
 // https://developers.google.com/appengine/docs/go/datastore/reference
@@ -78,8 +79,8 @@ type ivItem struct {
 	ZeroKey     *datastore.Key
 	KeySlice    []*datastore.Key
 	KeySliceNil []*datastore.Key
-	BlobKey     appengine.BlobKey
-	BKSlice     []appengine.BlobKey
+	BlobKey     BlobKey
+	BKSlice     []BlobKey
 	Sub         ivItemSub
 	Subs        []ivItemSubs
 	ZZZV        []ivZZZV
@@ -186,7 +187,7 @@ func initializeIvItems() {
 			ChildKey:    NewKey("Person", "Jane", 0, NewKey("Person", "John", 0, NewKey("Person", "Jack", 0, nil))),
 			KeySlice:    []*datastore.Key{NewKey("Key", "", 1, nil), NewKey("Key", "", 2, nil), NewKey("Key", "", 3, nil)},
 			KeySliceNil: []*datastore.Key{NewKey("Number", "", 1, nil), nil, NewKey("Number", "", 2, nil)},
-			BlobKey:     "fake #1", BKSlice: []appengine.BlobKey{"fake #1.1", "fake #1.2"},
+			BlobKey:     "fake #1", BKSlice: []BlobKey{"fake #1.1", "fake #1.2"},
 			Sub: ivItemSub{Data: "yay #1", Ints: []int{1, 2, 3}},
 			Subs: []ivItemSubs{
 				{Data: "sub #1.1", Extra: "xtra #1.1"},
@@ -211,7 +212,7 @@ func initializeIvItems() {
 			ChildKey:    NewKey("Person", "Jane", 0, NewKey("Person", "John", 0, NewKey("Person", "Jack", 0, nil))),
 			KeySlice:    []*datastore.Key{NewKey("Key", "", 4, nil), NewKey("Key", "", 5, nil), NewKey("Key", "", 6, nil)},
 			KeySliceNil: []*datastore.Key{NewKey("Number", "", 3, nil), nil, NewKey("Number", "", 4, nil)},
-			BlobKey:     "fake #2", BKSlice: []appengine.BlobKey{"fake #2.1", "fake #2.2"},
+			BlobKey:     "fake #2", BKSlice: []BlobKey{"fake #2.1", "fake #2.2"},
 			Sub: ivItemSub{Data: "yay #2", Ints: []int{4, 5, 6}},
 			Subs: []ivItemSubs{
 				{Data: "sub #2.1", Extra: "xtra #2.1"},
@@ -236,7 +237,7 @@ func initializeIvItems() {
 			ChildKey:    NewKey("Person", "Jane", 0, NewKey("Person", "John", 0, NewKey("Person", "Jack", 0, nil))),
 			KeySlice:    []*datastore.Key{NewKey("Key", "", 7, nil), NewKey("Key", "", 8, nil), NewKey("Key", "", 9, nil)},
 			KeySliceNil: []*datastore.Key{NewKey("Number", "", 5, nil), nil, NewKey("Number", "", 6, nil)},
-			BlobKey:     "fake #3", BKSlice: []appengine.BlobKey{"fake #3.1", "fake #3.2"},
+			BlobKey:     "fake #3", BKSlice: []BlobKey{"fake #3.1", "fake #3.2"},
 			Sub: ivItemSub{Data: "yay #3", Ints: []int{7, 8, 9}},
 			Subs: []ivItemSubs{
 				{Data: "sub #3.1", Extra: "xtra #3.1"},
@@ -300,7 +301,7 @@ func getIVItemCopy(_ *Goon, index int) *ivItem {
 		}
 	}
 
-	ivi.BKSlice = append([]appengine.BlobKey{}, ivi.BKSlice...)
+	ivi.BKSlice = append([]BlobKey{}, ivi.BKSlice...)
 
 	ivi.Sub = ivItemSub{}
 	ivi.Sub.Data = ivItems[index].Sub.Data
