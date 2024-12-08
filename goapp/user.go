@@ -33,6 +33,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/harishjp/goread/task"
 	"golang.org/x/net/context"
 
 	"github.com/harishjp/goread/goon"
@@ -44,7 +45,6 @@ import (
 	"cloud.google.com/go/datastore"
 	"google.golang.org/api/iterator"
 	"google.golang.org/appengine/v2"
-	"google.golang.org/appengine/v2/taskqueue"
 	"google.golang.org/appengine/v2/user"
 )
 
@@ -136,12 +136,10 @@ func ImportOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		log.Errorf(c, "opml error: %v", err.Error())
 		return
 	}
-
-	task := taskqueue.NewPOSTTask(routeUrl("import-opml-task"), url.Values{
+	task.SubmitTask(c, routeUrl("import-opml-task"), url.Values{
 		"key":  {dest.Name()},
 		"user": {cu.ID},
-	})
-	taskqueue.Add(c, task, "import-reader")
+	}, "import-reader")
 }
 
 func AddSubscription(c mpg.Context, w http.ResponseWriter, r *http.Request) {
@@ -239,8 +237,8 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 
 	c.Step(fmt.Sprintf("feed unreads: %v", u.Read), func(c mpg.Context) {
 		queue := make(chan *Feed)
-		tc := make(chan *taskqueue.Task)
-		done := make(chan bool)
+		taskQueue, _ := task.NewCloudTaskQueue(c)
+		defer taskQueue.Close()
 		wg := sync.WaitGroup{}
 		feedProc := func() {
 			for f := range queue {
@@ -272,21 +270,21 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 					manualDone := false
 					if time.Since(f.LastViewed) > time.Hour*24*2 {
 						if !f.NextUpdate.Before(timeMax) {
-							tc <- taskqueue.NewPOSTTask(routeUrl("update-feed-manual"), url.Values{
+							taskQueue.SubmitTask(ctx, task.NewPostTask(routeUrl("update-feed-manual"), url.Values{
 								"feed": {f.Url},
 								"last": {"1"},
-							})
+							}, "update-manual"))
 							manualDone = true
 						} else {
-							tc <- taskqueue.NewPOSTTask(routeUrl("update-feed-last"), url.Values{
+							taskQueue.SubmitTask(ctx, task.NewPostTask(routeUrl("update-feed-last"), url.Values{
 								"feed": {f.Url},
-							})
+							}, "update-manual"))
 						}
 					}
 					if !manualDone && now.Sub(f.NextUpdate) >= 0 {
-						tc <- taskqueue.NewPOSTTask(routeUrl("update-feed-manual"), url.Values{
+						taskQueue.SubmitTask(ctx, task.NewPostTask(routeUrl("update-feed-manual"), url.Values{
 							"feed": {f.Url},
-						})
+						}, "update-manual"))
 					}
 					lock.Lock()
 					fl[f.Url] = stories
@@ -295,7 +293,6 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}
-		go taskSender(c, "update-manual", tc, done)
 		for i := 0; i < 20; i++ {
 			go feedProc()
 		}
@@ -322,9 +319,6 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		})
 		// wait for feeds to complete so there are no more tasks to queue
 		wg.Wait()
-		// then finish enqueuing tasks
-		close(tc)
-		<-done
 	})
 	if numStories > 0 {
 		c.Step("numStories", func(c mpg.Context) {

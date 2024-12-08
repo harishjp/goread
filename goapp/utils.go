@@ -46,7 +46,6 @@ import (
 
 	"golang.org/x/net/context"
 	"google.golang.org/appengine/v2"
-	"google.golang.org/appengine/v2/taskqueue"
 	"google.golang.org/appengine/v2/user"
 )
 
@@ -828,24 +827,4 @@ func scheduleNextUpdate(c context.Context, f *Feed) {
 		pause -= jitter
 	}
 	f.NextUpdate = time.Now().Add(pause)
-}
-
-func taskSender(c mpg.Context, queue string, tc chan *taskqueue.Task, done chan bool) {
-	const taskLimit = 100
-	tasks := make([]*taskqueue.Task, 0, taskLimit)
-	send := func() {
-		_, err := taskqueue.AddMulti(c, tasks, queue)
-		log.Infof(c, "added %v tasks, %v", len(tasks), err)
-		tasks = tasks[0:0]
-	}
-	for t := range tc {
-		tasks = append(tasks, t)
-		if len(tasks) == taskLimit {
-			send()
-		}
-	}
-	if len(tasks) > 0 {
-		send()
-	}
-	done <- true
 }

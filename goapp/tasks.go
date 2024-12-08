@@ -32,6 +32,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/harishjp/goread/task"
 	"golang.org/x/net/context"
 	"google.golang.org/api/iterator"
 
@@ -41,7 +42,6 @@ import (
 	"golang.org/x/net/html/charset"
 
 	"cloud.google.com/go/datastore"
-	"google.golang.org/appengine/v2/taskqueue"
 )
 
 func ImportOpmlTask(c mpg.Context, w http.ResponseWriter, r *http.Request) {
@@ -130,12 +130,14 @@ func ImportOpmlTask(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(userOpml) == IMPORT_LIMIT {
-		task := taskqueue.NewPOSTTask(routeUrl("import-opml-task"), url.Values{
+		err = task.SubmitTask(c, routeUrl("import-opml-task"), url.Values{
 			"key":  {filePath},
 			"user": {userid},
 			"skip": {strconv.Itoa(skip + IMPORT_LIMIT)},
-		})
-		taskqueue.Add(c, task, "import-reader")
+		}, "import-reader")
+		if err != nil {
+			log.Warningf(c, "error submitting task: %v", err)
+		}
 	} else {
 		log.Infof(c, "opml import done: %v", userid)
 	}
@@ -228,27 +230,31 @@ func UpdateFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	q = q.Limit(10 * 60 * 2) // 10/s queue, 2 min cron
 	c1, cf := context.WithTimeout(c, time.Minute)
 	defer cf()
+	queue, err := task.NewCloudTaskQueue(c1)
+	if err != nil {
+		log.Errorf(c, "error creating queue: %v", err)
+		return
+	}
+	defer queue.Close()
 	it := goon.FromContext(c1).RunNoCache(c1, q)
-	tc := make(chan *taskqueue.Task)
-	done := make(chan bool)
-	i := 0
 	u := routeUrl("update-feed")
-	go taskSender(c, "update-feed", tc, done)
+	i := 0
 	for {
 		k, err := it.Next(nil)
 		if errors.Is(err, iterator.Done) {
 			break
 		} else if err != nil {
-			log.Errorf(c, "next error: %v", err.Error())
+			log.Errorf(c, "next error: %v", err)
 			break
 		}
-		tc <- taskqueue.NewPOSTTask(u, url.Values{
+		err = queue.SubmitTask(c1, task.NewPostTask(u, url.Values{
 			"feed": {k.Name},
-		})
+		}, "update-feed"))
+		if err != nil {
+			log.Warningf(c, "error submitting task: %v", err)
+		}
 		i++
 	}
-	close(tc)
-	<-done
 	log.Infof(c, "updating %d feeds", i)
 }
 
@@ -486,8 +492,14 @@ func DeleteOldFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 
 	it := gn.RunNoCache(ctx, q)
 	done := false
-	var tasks []*taskqueue.Task
-	for i := 0; i < 10000 && len(tasks) < 100; i++ {
+	queue, err := task.NewCloudTaskQueue(ctx)
+	if err != nil {
+		log.Errorf(c, "cannot create queue: %v", err)
+		return
+	}
+	defer queue.Close()
+	count := 0
+	for i := 0; i < 10000 && count < 100; i++ {
 		k, err := it.Next(nil)
 		if errors.Is(err, iterator.Done) {
 			log.Criticalf(c, "done")
@@ -497,21 +509,22 @@ func DeleteOldFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 			log.Errorf(c, "err: %v", err)
 			continue
 		}
-		values := make(url.Values)
-		values.Add("f", k.Name)
-		tasks = append(tasks, taskqueue.NewPOSTTask("/tasks/delete-old-feed", values))
-	}
-	if len(tasks) > 0 {
-		log.Errorf(c, "deleting %v feeds", len(tasks))
-		if _, err := taskqueue.AddMulti(c, tasks, ""); err != nil {
-			log.Errorf(c, "err: %v", err)
+		err = queue.SubmitTask(ctx, task.NewPostTask("/tasks/delete-old-feed", url.Values{
+			"f": {k.Name},
+		}, "default"))
+		if err != nil {
+			log.Errorf(c, "error submitting task: %v", err)
 		}
+		count++
 	}
 	if !done {
 		if cur, err := it.Cursor(); err == nil {
-			values := make(url.Values)
-			values.Add("c", cur.String())
-			taskqueue.Add(c, taskqueue.NewPOSTTask("/tasks/delete-old-feeds", values), "")
+			err = queue.SubmitTask(ctx, task.NewPostTask("/tasks/delete-old-feeds", url.Values{
+				"c": {cur.String()},
+			}, "default"))
+			if err != nil {
+				log.Errorf(c, "error continuing delete task: %v", err)
+			}
 		} else {
 			log.Errorf(c, "err: %v", err)
 		}

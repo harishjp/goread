@@ -27,10 +27,10 @@ import (
 
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
+	"github.com/harishjp/goread/task"
 
 	"cloud.google.com/go/datastore"
 	"golang.org/x/net/context"
-	"google.golang.org/appengine/v2/taskqueue"
 	"google.golang.org/appengine/v2/user"
 )
 
@@ -143,13 +143,11 @@ type Feed struct {
 func (f *Feed) Subscribe(c context.Context) {
 	if !f.IsSubscribed() {
 		log.Infof(c, "Subscribe %v", f.Subscribed.String())
-		t := taskqueue.NewPOSTTask(routeUrl("subscribe-feed"), url.Values{
+		err := task.SubmitTask(c, routeUrl("subscribe-feed"), url.Values{
 			"feed": {f.Url},
-		})
-		if _, err := taskqueue.Add(c, t, "update-manual"); err != nil {
-			log.Errorf(c, "taskqueue error: %v", err.Error())
-		} else {
-			log.Warningf(c, "subscribe feed: %v", f.Url)
+		}, "update-manual")
+		if err != nil {
+			log.Errorf(c, "error submiting task: %v", err.Error())
 		}
 	}
 }
