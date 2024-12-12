@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/appengine/v2"
+	"github.com/harishjp/goread/config"
 	"google.golang.org/appengine/v2/user"
 )
 
@@ -57,7 +57,7 @@ func serveError(w http.ResponseWriter, err error) {
 
 func appstatsHandler(w http.ResponseWriter, r *http.Request) {
 	c := r.Context()
-	if appengine.IsDevAppServer() {
+	if config.IsDevServer() {
 		// noop
 	} else if u := user.Current(c); u == nil {
 		if loginURL, err := user.LoginURL(c, r.URL.String()); err == nil {
@@ -200,7 +200,7 @@ func index(w http.ResponseWriter, r *http.Request) {
 		PathStatsByCount    statsByName
 	}{
 		Env: map[string]string{
-			"APPLICATION_ID": appengine.AppID(r.Context()),
+			"APPLICATION_ID": config.ProjectID(),
 		},
 		Requests:         requests,
 		AllStatsByCount:  allStatsByCount,
@@ -223,7 +223,7 @@ func details(w http.ResponseWriter, r *http.Request) {
 		Real            time.Duration
 	}{
 		Env: map[string]string{
-			"APPLICATION_ID": appengine.AppID(r.Context()),
+			"APPLICATION_ID": config.ProjectID(),
 		},
 	}
 
@@ -295,7 +295,7 @@ func file(w http.ResponseWriter, r *http.Request) {
 		Fp       map[int]string
 	}{
 		Env: map[string]string{
-			"APPLICATION_ID": appengine.AppID(r.Context()),
+			"APPLICATION_ID": config.ProjectID(),
 		},
 		Filename: fname,
 		Lineno:   lineno,

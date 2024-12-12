@@ -33,6 +33,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/harishjp/goread/config"
 	"github.com/harishjp/goread/task"
 	"golang.org/x/net/context"
 
@@ -44,7 +45,6 @@ import (
 
 	"cloud.google.com/go/datastore"
 	"google.golang.org/api/iterator"
-	"google.golang.org/appengine/v2"
 	"google.golang.org/appengine/v2/user"
 )
 
@@ -72,7 +72,7 @@ func LoginRedirect(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 }
 
 func Logout(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	if appengine.IsDevAppServer() {
+	if config.IsDevServer() {
 		if u, err := user.LogoutURL(c, routeUrl("main")); err == nil {
 			http.Redirect(w, r, u, http.StatusFound)
 			return

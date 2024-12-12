@@ -22,7 +22,7 @@ An appstats link is listed in each Profile.
 
 To use this package, change your HTTP handler functions to use this signature:
 
-    func(mpg.Context, http.ResponseWriter, *http.Request)
+	func(mpg.Context, http.ResponseWriter, *http.Request)
 
 Register them in the usual way, wrapping them with NewHandler.
 
@@ -32,15 +32,15 @@ false).
 By default, miniprofiler_gae is enabled on dev for all and on prod for admins.
 Override miniprofiler.Enable to change.
 
-Step
+# Step
 
 Unlike base miniprofiler, the Step function returns a profiled context:
 
-    c.Step("something", func(c mpg.Context) {
-        // c is valid appengine.Context and miniprofiler.Timer:
-        // datastore.Get(c, key, entity)
-        // c.Step("another", func(c mpg.Context) { ... })
-    })
+	c.Step("something", func(c mpg.Context) {
+	    // c is valid context.Context and miniprofiler.Timer:
+	    // datastore.Get(c, key, entity)
+	    // c.Step("another", func(c mpg.Context) { ... })
+	})
 
 See the miniprofiler package docs about further usage: http://godoc.org/github.com/MiniProfiler/go/miniprofiler.
 */

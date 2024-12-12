@@ -32,6 +32,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/harishjp/goread/atom"
+	"github.com/harishjp/goread/config"
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
 	"github.com/harishjp/goread/memstore"
@@ -45,7 +46,6 @@ import (
 	"golang.org/x/text/transform"
 
 	"golang.org/x/net/context"
-	"google.golang.org/appengine/v2"
 	"google.golang.org/appengine/v2/user"
 )
 
@@ -116,9 +116,9 @@ func init() {
 	font_awesome_ver := "4.0.3"
 	jquery_ver := "2.0.3"
 	jqueryui_ver := "1.10.3.sortable"
-	isDevServer = appengine.IsDevAppServer()
+	isDevServer = config.IsDevServer()
 
-	if appengine.IsDevAppServer() {
+	if isDevServer {
 		Angular = "/static/js/angular.js"
 		BootstrapCss = "/static/css/bootstrap.css"
 		BootstrapJs = "/static/js/bootstrap.js"

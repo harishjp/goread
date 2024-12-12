@@ -76,7 +76,7 @@ func (c Context) Step(name string, f func(Context)) {
 	}
 }
 
-// NewHandler returns a profiled, appstats-aware appengine.Context.
+// NewHandler returns a profiled, appstats-aware context.Context.
 func NewHandler(f func(Context, http.ResponseWriter, *http.Request)) http.Handler {
 	return appstats.NewHandler(func(c context.Context, w http.ResponseWriter, r *http.Request) {
 		h := miniprofiler.NewHandler(func(t miniprofiler.Timer, w http.ResponseWriter, r *http.Request) {

@@ -17,23 +17,19 @@
 /*
 Package appstats profiles the RPC performance of Google App Engine applications.
 
-Reference: https://developers.google.com/appengine/docs/python/tools/appstats
-
 To use this package, change your HTTP handler functions to use this signature:
 
-	func(appengine.Context, http.ResponseWriter, *http.Request)
+	func(context.Context, http.ResponseWriter, *http.Request)
 
 Register them in the usual way, wrapping them with NewHandler.
 
-
-Example
+# Example
 
 This is a small example using this package.
 
 	import (
+		"context"
 		"net/http"
-
-		"appengine"
 
 		"github.com/mjibson/appstats"
 	)
@@ -42,23 +38,20 @@ This is a small example using this package.
 		http.Handle("/", appstats.NewHandler(Main))
 	}
 
-	func Main(c appengine.Context, w http.ResponseWriter, r *http.Request) {
+	func Main(c context.Context, w http.ResponseWriter, r *http.Request) {
 		// do stuff with c: datastore.Get(c, key, entity)
 		w.Write([]byte("success"))
 	}
 
-
-Usage
+# Usage
 
 Use your app, and view the appstats interface at http://localhost:8080/_ah/stats/, or your production URL.
 
-
-Configuration
+# Configuration
 
 Refer to the variables section of the documentation: http://godoc.org/github.com/mjibson/appstats#pkg-variables.
 
-
-Routing
+# Routing
 
 In general, your app.yaml will not need to change. In the case of conflicting
 routes, add the following to your app.yaml:
@@ -67,8 +60,7 @@ routes, add the following to your app.yaml:
 	- url: /_ah/stats/.*
 	  script: _go_app
 
-
-TODO
+# TODO
 
 Cost calculation is experimental. Currently it only includes write ops (read and small ops are TODO).
 */
