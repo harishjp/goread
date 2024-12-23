@@ -19,6 +19,7 @@ package goread
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/base64"
 	"encoding/xml"
 	"errors"
@@ -32,23 +33,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harishjp/goread/task"
-	"golang.org/x/net/context"
-	"google.golang.org/api/iterator"
-
+	"cloud.google.com/go/datastore"
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
 	mpg "github.com/harishjp/goread/miniprofiler_gae"
+	"github.com/harishjp/goread/task"
 	"golang.org/x/net/html/charset"
-
-	"cloud.google.com/go/datastore"
+	"google.golang.org/api/iterator"
 )
 
 func ImportOpmlTask(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	gn := goon.FromContext(c)
 	userid := r.FormValue("user")
 	filePath := r.FormValue("key")
-	defer os.Remove(filePath)
 
 	var skip int
 	if s, err := strconv.Atoi(r.FormValue("skip")); err == nil {
@@ -59,6 +56,7 @@ func ImportOpmlTask(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		log.Warningf(c, "file open failed: %v", err.Error())
+		_ = os.Remove(filePath)
 		return
 	}
 
@@ -69,6 +67,7 @@ func ImportOpmlTask(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	err = d.Decode(&opml)
 	if err != nil {
 		log.Warningf(c, "gob decode failed: %v", err.Error())
+		_ = os.Remove(filePath)
 		return
 	}
 
@@ -123,9 +122,10 @@ func ImportOpmlTask(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		}
 		_, err := gn.Put(&ud)
 		return err
-	}, nil); err != nil {
+	}); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		log.Errorf(c, "ude update error: %v", err.Error())
+		log.Errorf(c, "ud update error: %v", err.Error())
+		_ = os.Remove(filePath)
 		return
 	}
 
@@ -139,6 +139,7 @@ func ImportOpmlTask(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 			log.Warningf(c, "error submitting task: %v", err)
 		}
 	} else {
+		_ = os.Remove(filePath)
 		log.Infof(c, "opml import done: %v", userid)
 	}
 }

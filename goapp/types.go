@@ -19,19 +19,18 @@ package goread
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"net/url"
 	"time"
 
+	"cloud.google.com/go/datastore"
+	"github.com/harishjp/goread/config"
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
 	"github.com/harishjp/goread/task"
-
-	"cloud.google.com/go/datastore"
-	"golang.org/x/net/context"
-	"google.golang.org/appengine/v2/user"
 )
 
 type User struct {
@@ -101,7 +100,7 @@ type UserStar struct {
 }
 
 func starKey(c context.Context, feed, story string) *UserStar {
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
 	uk := gn.Key(&u)
@@ -158,7 +157,7 @@ func (f *Feed) IsSubscribed() bool {
 
 func (f *Feed) PubSubURL() string {
 	b := base64.URLEncoding.EncodeToString([]byte(f.Url))
-	ru, _ := router.Get("subscribe-callback").URL()
+	ru, _ := getURL("subscribe-callback")
 	ru.Scheme = "http"
 	ru.Host = ""
 	ru.RawQuery = url.Values{

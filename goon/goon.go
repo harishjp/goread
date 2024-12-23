@@ -18,6 +18,7 @@ package goon
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -25,12 +26,9 @@ import (
 	"runtime"
 	"sync"
 
+	"cloud.google.com/go/datastore"
 	"github.com/harishjp/goread/log"
 	"github.com/harishjp/goread/memstore"
-
-	"golang.org/x/net/context"
-
-	"cloud.google.com/go/datastore"
 )
 
 // This is global cache to replace memcache.
@@ -70,16 +68,16 @@ func memkey(k *datastore.Key) string {
 	return "g2:" + k.Encode()
 }
 
-var clientKey = struct{}{}
+type clientKey struct{}
 
 func ContextWithClient(ctx context.Context, client *datastore.Client) context.Context {
-	return context.WithValue(ctx, clientKey, client)
+	return context.WithValue(ctx, clientKey{}, client)
 }
 
 // FromContext creates a new Goon object from the given context Context.
 // Useful with profiling packages like appstats.
 func FromContext(c context.Context) *Goon {
-	client, ok := c.Value(clientKey).(*datastore.Client)
+	client, ok := c.Value(clientKey{}).(*datastore.Client)
 	if !ok {
 		panic("client not found in context")
 	}

@@ -21,20 +21,20 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/harishjp/goread/config"
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
 	mpg "github.com/harishjp/goread/miniprofiler_gae"
 
 	"cloud.google.com/go/datastore"
-	"google.golang.org/appengine/v2/user"
 )
 
 func ClearRead(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	if !isDevServer {
+	if !config.IsDevServer() {
 		return
 	}
 
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := &User{Id: cu.ID}
 	ud := &UserData{Id: "data", Parent: gn.Key(u)}
@@ -50,11 +50,11 @@ func ClearRead(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 }
 
 func ClearFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	if !isDevServer {
+	if !config.IsDevServer() {
 		return
 	}
 
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	done := make(chan bool)
 	go func() {

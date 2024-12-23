@@ -31,6 +31,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"github.com/gorilla/mux"
 )
 
 var (
@@ -72,8 +74,8 @@ var (
 	fsHandler = http.FileServer(webFS)
 )
 
-func init() {
-	http.Handle(PATH, http.StripPrefix(PATH, http.HandlerFunc(MiniProfilerHandler)))
+func Init(router *mux.Router) {
+	router.PathPrefix(PATH).Handler(http.StripPrefix(PATH, http.HandlerFunc(MiniProfilerHandler)))
 }
 
 // MiniProfilerHandler serves requests to the /mini-profiler-resources/
@@ -301,12 +303,8 @@ func EnableAll(r *http.Request) bool {
 	return true
 }
 
-var profiles map[string]*Profile
+var profiles = make(map[string]*Profile)
 var profileLock sync.Mutex
-
-func init() {
-	profiles = make(map[string]*Profile)
-}
 
 // StoreMemory stores a profile in memory (concurrent-safe). Note that profiles
 // do not expire, so memory usage will increase until restart. This function is

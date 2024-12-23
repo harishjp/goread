@@ -27,10 +27,10 @@ import (
 	"time"
 
 	"cloud.google.com/go/datastore"
+	"github.com/harishjp/goread/config"
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
 	mpg "github.com/harishjp/goread/miniprofiler_gae"
-	"google.golang.org/appengine/v2/user"
 )
 
 type Plan struct {
@@ -76,7 +76,7 @@ type StripeError struct {
 }
 
 func Charge(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
 	uc := &UserCharge{Id: 1, Parent: gn.Key(&u)}
@@ -134,7 +134,7 @@ func setCharge(c mpg.Context, r *http.Response) (*UserCharge, error) {
 	if err := json.Unmarshal(b, &sc); err != nil {
 		return nil, err
 	}
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
 	uc := UserCharge{Id: 1, Parent: gn.Key(&u)}
@@ -155,14 +155,14 @@ func setCharge(c mpg.Context, r *http.Response) (*UserCharge, error) {
 		uc.Plan = sc.Subscription.Plan.Id
 		_, err := gn.PutMulti([]interface{}{&u, &uc})
 		return err
-	}, nil); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	return &uc, nil
 }
 
 func Account(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
 	uc := &UserCharge{Id: 1, Parent: gn.Key(&u)}
@@ -194,7 +194,7 @@ func Uncheckout(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 }
 
 func doUncheckout(c mpg.Context) (*UserCharge, error) {
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
 	uc := UserCharge{Id: 1, Parent: gn.Key(&u)}
@@ -224,7 +224,7 @@ func doUncheckout(c mpg.Context) (*UserCharge, error) {
 		}
 		_, err := gn.Put(&u)
 		return err
-	}, nil); err != nil {
+	}); err != nil {
 		return nil, err
 	}
 	return &uc, nil

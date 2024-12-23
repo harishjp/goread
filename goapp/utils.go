@@ -18,6 +18,7 @@ package goread
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -44,9 +45,6 @@ import (
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/charmap"
 	"golang.org/x/text/transform"
-
-	"golang.org/x/net/context"
-	"google.golang.org/appengine/v2/user"
 )
 
 func httpGet(ctx context.Context, url string) ([]byte, http.Header, error) {
@@ -96,6 +94,8 @@ type Includes struct {
 	IsAdmin             bool
 	StripeKey           string
 	StripePlans         []Plan
+	ClientID            string
+	RootURL             string
 }
 
 var (
@@ -106,19 +106,17 @@ var (
 	Jquery       string
 	JqueryUI     string
 	Underscore   string
-	isDevServer  bool
 	subURL       string
 )
 
-func init() {
+func InitVars() {
 	angular_ver := "1.2.1"
 	bootstrap_ver := "3.0.2"
 	font_awesome_ver := "4.0.3"
 	jquery_ver := "2.0.3"
 	jqueryui_ver := "1.10.3.sortable"
-	isDevServer = config.IsDevServer()
 
-	if isDevServer {
+	if config.IsDevServer() {
 		Angular = "/static/js/angular.js"
 		BootstrapCss = "/static/css/bootstrap.css"
 		BootstrapJs = "/static/js/bootstrap.js"
@@ -148,10 +146,12 @@ func includes(c mpg.Context, _ http.ResponseWriter, _ *http.Request) *Includes {
 		Underscore:   Underscore,
 		MiniProfiler: c.Includes(),
 		SubURL:       subURL,
-		IsDev:        isDevServer,
+		IsDev:        config.IsDevServer(),
+		ClientID:     config.ClientID(),
+		RootURL:      config.RootURL(),
 	}
 
-	if cu := user.Current(c); cu != nil {
+	if cu := config.GetSession(c); cu != nil {
 		gn := goon.FromContext(c)
 		u := &User{Id: cu.ID}
 		if err := gn.Get(u); err == nil {
@@ -175,6 +175,8 @@ func includes(c mpg.Context, _ http.ResponseWriter, _ *http.Request) *Includes {
 				}
 			*/
 		}
+	} else {
+		log.Infof(c, "no user detected")
 	}
 
 	return i
@@ -756,7 +758,7 @@ func loadImage(c context.Context, f *Feed) {
 		return
 	}
 	us := u.String()
-	if _, _, err := httpGet(c, us); err == nil {
+	if _, _, err := httpGet(c, us); err != nil {
 		us = ""
 	}
 	f.Image = us

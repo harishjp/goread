@@ -8,6 +8,7 @@ import (
 
 	cloudtasks "cloud.google.com/go/cloudtasks/apiv2"
 	"cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
+	"github.com/harishjp/goread/config"
 )
 
 type Task struct {
@@ -32,12 +33,21 @@ type cloudTaskQueue struct {
 }
 
 func NewCloudTaskQueue(ctx context.Context) (Queue, error) {
+	if config.IsDevServer() {
+		file, err := os.OpenFile("task.txt", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+		if err != nil {
+			return nil, err
+		}
+		return &fileTaskQueue{
+			file: file,
+		}, nil
+	}
 	client, err := cloudtasks.NewClient(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	prefix := fmt.Sprintf("projects/%s/locations/%s/queues/", os.Getenv("GOOGLE_CLOUD_PROJECT"), "us-west2")
+	prefix := fmt.Sprintf("projects/%s/locations/%s/queues/", config.ProjectID(), config.Region())
 	return &cloudTaskQueue{
 		client:      client,
 		queuePrefix: prefix,
@@ -63,6 +73,20 @@ func (q *cloudTaskQueue) SubmitTask(ctx context.Context, task *Task) error {
 
 func (q *cloudTaskQueue) Close() error {
 	return q.client.Close()
+}
+
+type fileTaskQueue struct {
+	file *os.File
+}
+
+func (q *fileTaskQueue) SubmitTask(ctx context.Context, task *Task) error {
+	data := task.values.Encode() + " " + config.RootURL() + task.url + "\n"
+	_, err := q.file.Write([]byte(data))
+	return err
+}
+
+func (q *fileTaskQueue) Close() error {
+	return q.file.Close()
 }
 
 func SubmitTask(ctx context.Context, url string, values url.Values, queueName string) error {

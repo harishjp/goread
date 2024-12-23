@@ -17,6 +17,7 @@
 package goread
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,22 +29,21 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/harishjp/goread/config"
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
 	"github.com/harishjp/goread/miniprofiler"
 	mpg "github.com/harishjp/goread/miniprofiler_gae"
 
 	"cloud.google.com/go/datastore"
-	"golang.org/x/net/context"
 )
 
 var (
-	router      = new(mux.Router)
 	templates   *template.Template
 	mobileIndex []byte
 )
 
-func init() {
+func Init(router *mux.Router) {
 	var err error
 	if templates, err = template.New("").Funcs(funcs).
 		ParseFiles(
@@ -64,13 +64,14 @@ func init() {
 	miniprofiler.ToggleShortcut = "Alt+C"
 	miniprofiler.Position = "bottomleft"
 
-	router = mux.NewRouter()
-	RegisterDatastoreClient()
-	RegisterHandlers()
-	http.Handle("/", router)
+	RegisterDatastoreClient(router)
+	RegisterHandlers(router)
+	getURL = func(name string, pairs ...string) (*url.URL, error) {
+		return router.Get(name).URL(pairs...)
+	}
 }
 
-func RegisterDatastoreClient() {
+func RegisterDatastoreClient(router *mux.Router) {
 	client, err := datastore.NewClient(context.Background(), datastore.DetectProjectID)
 	if err != nil {
 		log.Fatal(err)
@@ -82,11 +83,13 @@ func RegisterDatastoreClient() {
 	})
 }
 
-func RegisterHandlers() {
+func RegisterHandlers(router *mux.Router) {
+	sessionHandler := NewSessionHandler()
+	router.Use(sessionHandler.Middleware)
 	router.Handle("/", mpg.NewHandler(Main)).Name("main")
-	router.Handle("/login/google", mpg.NewHandler(LoginGoogle)).Name("login-google")
+	router.Handle("/login/callback", mpg.NewHandler(sessionHandler.Login)).Name("callback-google")
 	router.Handle("/login/redirect", mpg.NewHandler(LoginRedirect))
-	router.Handle("/logout", mpg.NewHandler(Logout)).Name("logout")
+	router.Handle("/logout", mpg.NewHandler(sessionHandler.Logout)).Name("logout")
 	router.Handle("/push", mpg.NewHandler(SubscribeCallback)).Name("subscribe-callback")
 	router.Handle("/tasks/import-opml", mpg.NewHandler(ImportOpmlTask)).Name("import-opml-task")
 	router.Handle("/tasks/subscribe-feed", mpg.NewHandler(SubscribeFeed)).Name("subscribe-feed")
@@ -126,9 +129,12 @@ func RegisterHandlers() {
 
 	//router.Handle("/tasks/delete-blobs", mpg.NewHandler(DeleteBlobs)).Name("delete-blobs")
 
-	if !isDevServer {
+	if !config.IsDevServer() {
+		log.Infof(context.Background(), "Production server not adding statics")
 		return
 	}
+
+	router.PathPrefix("/static/").Handler(http.FileServer(http.Dir("./app/")))
 	router.Handle("/user/clear-feeds", mpg.NewHandler(ClearFeeds)).Name("clear-feeds")
 	router.Handle("/user/clear-read", mpg.NewHandler(ClearRead)).Name("clear-read")
 	router.Handle("/test/atom.xml", mpg.NewHandler(TestAtom)).Name("test-atom")
@@ -137,7 +143,7 @@ func RegisterHandlers() {
 func wrap(f func(mpg.Context, http.ResponseWriter, *http.Request)) http.Handler {
 	handler := mpg.NewHandler(f)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isDevServer {
+		if config.IsDevServer() {
 			w.Header().Add("Access-Control-Allow-Origin", r.Header.Get("Origin"))
 			w.Header().Add("Access-Control-Allow-Credentials", "true")
 		}
@@ -221,9 +227,10 @@ func addFeed(c mpg.Context, userid string, outline *OpmlOutline) error {
 
 func mergeUserOpml(_ context.Context, ud *UserData, outlines ...*OpmlOutline) error {
 	var fs Opml
-	err := json.Unmarshal(ud.Opml, &fs)
-	if err != nil {
-		return fmt.Errorf("error reading user %s opml: %w", ud.Id, err)
+	if len(ud.Opml) > 0 {
+		if err := json.Unmarshal(ud.Opml, &fs); err != nil {
+			return fmt.Errorf("error reading user %s opml: %w", ud.Id, err)
+		}
 	}
 	urls := make(map[string]bool)
 

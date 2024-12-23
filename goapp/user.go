@@ -19,6 +19,7 @@ package goread
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/gob"
 	"encoding/json"
 	"encoding/xml"
@@ -33,67 +34,23 @@ import (
 	"sync"
 	"time"
 
+	"cloud.google.com/go/datastore"
 	"github.com/harishjp/goread/config"
-	"github.com/harishjp/goread/task"
-	"golang.org/x/net/context"
-
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
 	mpg "github.com/harishjp/goread/miniprofiler_gae"
 	"github.com/harishjp/goread/sanitizer"
+	"github.com/harishjp/goread/task"
 	"golang.org/x/net/html/charset"
-
-	"cloud.google.com/go/datastore"
 	"google.golang.org/api/iterator"
-	"google.golang.org/appengine/v2/user"
 )
 
-func LoginGoogle(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	if cu := user.Current(c); cu != nil {
-		gn := goon.FromContext(c)
-		u := &User{Id: cu.ID}
-		if err := gn.Get(u); errors.Is(err, datastore.ErrNoSuchEntity) {
-			u.Email = cu.Email
-			u.Read = time.Now().Add(-time.Hour * 24)
-			gn.Put(u)
-		}
-	}
-
-	http.Redirect(w, r, routeUrl("main"), http.StatusFound)
-}
-
 func LoginRedirect(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	url, err := user.LoginURL(c, r.FormValue("redirect"))
-	if err != nil {
-		serveError(w, err)
-		return
-	}
-	http.Redirect(w, r, url, http.StatusFound)
-}
-
-func Logout(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	if config.IsDevServer() {
-		if u, err := user.LogoutURL(c, routeUrl("main")); err == nil {
-			http.Redirect(w, r, u, http.StatusFound)
-			return
-		}
-	} else {
-		http.SetCookie(w, &http.Cookie{
-			Name:    "ACSID",
-			Value:   "",
-			Expires: time.Time{},
-		})
-		http.SetCookie(w, &http.Cookie{
-			Name:    "SACSID",
-			Value:   "",
-			Expires: time.Time{},
-		})
-	}
-	http.Redirect(w, r, routeUrl("main"), http.StatusFound)
+	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 func ImportOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
 	if err := gn.Get(&u); err != nil {
@@ -144,7 +101,7 @@ func ImportOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 
 func AddSubscription(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	backupOPML(c)
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	url := r.FormValue("url")
 	o := &OpmlOutline{
 		Outline: []*OpmlOutline{
@@ -177,7 +134,7 @@ const numStoriesLimit = 1000
 const accountFreeDuration = 30 * time.Hour * 24 // 30 days
 
 func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := &User{Id: cu.ID}
 	ud := &UserData{Id: "data", Parent: gn.Key(u)}
@@ -456,7 +413,7 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 }
 
 func MarkRead(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	read := make(Read)
 	var stories []readStory
@@ -484,11 +441,11 @@ func MarkRead(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		ud.Read = b.Bytes()
 		_, err := gn.Put(ud)
 		return err
-	}, nil)
+	})
 }
 
 func MarkUnread(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	read := make(Read)
 	f := r.FormValue("feed")
@@ -510,7 +467,7 @@ func MarkUnread(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		ud.Read = b.Bytes()
 		_, err := gn.Put(ud)
 		return err
-	}, nil)
+	})
 }
 
 func GetContents(c mpg.Context, w http.ResponseWriter, r *http.Request) {
@@ -542,11 +499,11 @@ func GetContents(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 
 func ExportOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	gn := goon.FromContext(c)
+	cu := config.GetSession(c)
 	var u User
-	if uid := r.FormValue("u"); len(uid) != 0 && user.IsAdmin(c) {
+	if uid := r.FormValue("u"); len(uid) != 0 && cu.Email == config.AdminEmail() {
 		u = User{Id: uid}
 	} else {
-		cu := user.Current(c)
 		u = User{Id: cu.ID}
 	}
 	ud := UserData{Id: "data", Parent: gn.Key(&u)}
@@ -592,7 +549,7 @@ func UploadOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	backupOPML(c)
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
 	ud := UserData{Id: "data", Parent: gn.Key(&u)}
@@ -617,7 +574,7 @@ func UploadOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 }
 
 func backupOPML(c mpg.Context) {
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
 	ud := UserData{Id: "data", Parent: gn.Key(&u)}
@@ -638,7 +595,7 @@ func backupOPML(c mpg.Context) {
 }
 
 func FeedHistory(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
 	uk := gn.Key(&u)
@@ -667,7 +624,7 @@ func FeedHistory(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 }
 
 func SaveOptions(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	gn.RunInTransaction(func(gn *goon.Goon) error {
 		u := User{Id: cu.ID}
@@ -679,7 +636,7 @@ func SaveOptions(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		_, err := gn.Put(&u)
 		log.Infof(c, "save options: %v", len(u.Options))
 		return err
-	}, nil)
+	})
 }
 
 func GetFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
@@ -746,7 +703,7 @@ func DeleteAccount(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	if _, err := doUncheckout(c); err != nil {
 		log.Errorf(c, "uncheckout err: %v", err)
 	}
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
 	uk := gn.Key(&u)
@@ -787,7 +744,7 @@ func SetStar(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 
 func GetStars(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	gn := goon.FromContext(c)
-	cu := user.Current(c)
+	cu := config.GetSession(c)
 	u := User{Id: cu.ID}
 	q := datastore.NewQuery(gn.Kind(&UserStar{})).
 		Ancestor(gn.Key(&u)).

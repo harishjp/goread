@@ -18,6 +18,7 @@ package goread
 
 import (
 	"html/template"
+	"net/url"
 	"reflect"
 	"time"
 )
@@ -47,8 +48,10 @@ func eq(args ...interface{}) bool {
 	return false
 }
 
+var getURL func(name string, pairs ...string) (*url.URL, error)
+
 func routeUrl(name string, pairs ...string) string {
-	u, err := router.Get(name).URL(pairs...)
+	u, err := getURL(name, pairs...)
 	if err != nil {
 		return err.Error()
 	}

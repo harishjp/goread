@@ -17,12 +17,12 @@
 package miniprofiler_gae
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/harishjp/goread/appstats"
 	"github.com/harishjp/goread/memstore"
 	"github.com/harishjp/goread/miniprofiler"
-	"golang.org/x/net/context"
 )
 
 func init() {
@@ -50,18 +50,6 @@ type Context struct {
 	appstats.Context
 	miniprofiler.Timer
 }
-
-/*
-func (c Context) Call(service, method string, in, out internal.Proto.Message) (err error) {
-	if c.Timer != nil && service != "__go__" {
-		c.StepCustomTiming(service, method, fmt.Sprintf("%v\n\n%v", method, in.String()), func() {
-			err = c.Context.Call(service, method, in, out)
-		})
-	} else {
-		err = c.Context.Call(service, method, in, out)
-	}
-	return
-}*/
 
 func (c Context) Step(name string, f func(Context)) {
 	if c.Timer != nil {

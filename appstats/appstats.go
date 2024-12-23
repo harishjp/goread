@@ -17,17 +17,16 @@
 package appstats
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"net/http"
 	"net/url"
 	"time"
 
-	"github.com/harishjp/goread/log"
+	"github.com/gorilla/mux"
+	"github.com/harishjp/goread/config"
 	"github.com/harishjp/goread/memstore"
-
-	"golang.org/x/net/context"
-	"google.golang.org/appengine/v2/user"
 )
 
 var (
@@ -47,8 +46,8 @@ const (
 	staticURL  = serveURL + "static/"
 )
 
-func init() {
-	http.HandleFunc(serveURL, appstatsHandler)
+func Init(router *mux.Router) {
+	router.HandleFunc(serveURL, appstatsHandler)
 }
 
 // DefaultShouldRecord will record a request based on RecordFraction.
@@ -72,8 +71,8 @@ func NewContext(req *http.Request) Context {
 	c := req.Context()
 	var uname string
 	var admin bool
-	if u := user.Current(c); u != nil {
-		uname = u.String()
+	if u := config.GetSession(c); u != nil {
+		uname = u.Name
 		admin = u.Admin
 	}
 	return Context{
@@ -102,7 +101,6 @@ func (c Context) save() {
 	}
 	fullKey := c.stats.FullKey()
 	fullStatsCache.Add(fullKey, full)
-	log.Infof(c.Context, "Saved full stats: %s, link: %v", fullKey, c.URL())
 
 	part := *c.stats
 	for i := range part.RPCStats {

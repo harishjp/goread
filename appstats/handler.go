@@ -27,13 +27,12 @@ import (
 	"time"
 
 	"github.com/harishjp/goread/config"
-	"google.golang.org/appengine/v2/user"
 )
 
 var templates *template.Template
 var staticFiles map[string][]byte
 
-func init() {
+func InitTemplates() {
 	templates = template.New("appstats").Funcs(funcs)
 	templates.Parse(htmlBase)
 	templates.Parse(htmlMain)
@@ -59,12 +58,8 @@ func appstatsHandler(w http.ResponseWriter, r *http.Request) {
 	c := r.Context()
 	if config.IsDevServer() {
 		// noop
-	} else if u := user.Current(c); u == nil {
-		if loginURL, err := user.LoginURL(c, r.URL.String()); err == nil {
-			http.Redirect(w, r, loginURL, http.StatusTemporaryRedirect)
-		} else {
-			serveError(w, err)
-		}
+	} else if u := config.GetSession(c); u == nil {
+		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 		return
 	} else if !u.Admin {
 		http.Error(w, "Forbidden", http.StatusForbidden)
