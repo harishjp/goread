@@ -28,22 +28,16 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
 	"github.com/gorilla/mux"
+	"github.com/harishjp/goread/memstore"
 )
 
 var (
 	// Enable returns true if the request should be profiled.
 	Enable func(*http.Request) bool = EnableAll
-
-	// Store stores the Profile by its Id field.
-	Store func(*http.Request, *Profile) = StoreMemory
-
-	// Get retrieves a Profile by its Id field.
-	Get func(*http.Request, string) *Profile = GetMemory
 
 	// MachineName returns the machine name to display.
 	// The default is to use the machine's hostname.
@@ -75,23 +69,14 @@ var (
 )
 
 func Init(router *mux.Router) {
-	router.PathPrefix(PATH).Handler(http.StripPrefix(PATH, http.HandlerFunc(MiniProfilerHandler)))
-}
-
-// MiniProfilerHandler serves requests to the /mini-profiler-resources/
-// path. For use only by miniprofiler helper libraries.
-func MiniProfilerHandler(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "results" {
-		results(w, r)
-	} else {
-		fsHandler.ServeHTTP(w, r)
-	}
+	router.HandleFunc(PATH+"results", results)
+	router.PathPrefix(PATH).Handler(http.StripPrefix(PATH, fsHandler))
 }
 
 func results(w http.ResponseWriter, r *http.Request) {
 	id := r.FormValue("id")
 	isPopup := r.FormValue("popup") == "1"
-	p := Get(r, id)
+	p := getCache(r, id)
 	if p == nil {
 		http.Error(w, "", http.StatusNotFound)
 		return
@@ -106,7 +91,7 @@ func results(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if needsSave {
-		Store(r, p)
+		storeCache(r, p)
 	}
 
 	var j []byte
@@ -244,31 +229,6 @@ func (p *Profile) Includes() template.HTML {
 	return template.HTML(w.String())
 }
 
-type Handler struct {
-	f func(Timer, http.ResponseWriter, *http.Request)
-	p *Profile
-}
-
-// NewHandler returns a new profiled handler.
-func NewHandler(f func(Timer, http.ResponseWriter, *http.Request)) Handler {
-	return Handler{
-		f: f,
-	}
-}
-
-func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	switch r.URL.Query().Get("pp") {
-	default:
-		h.ProfileRequest(w, r)
-	}
-}
-
-func (h Handler) ProfileRequest(w http.ResponseWriter, r *http.Request) {
-	h.p = NewProfile(w, r, FuncName(h.f))
-	h.f(h.p, w, r)
-	h.p.Finalize()
-}
-
 // Since returns the number of milliseconds since t.
 func Since(t time.Time) float64 {
 	d := time.Since(t)
@@ -299,27 +259,23 @@ func FuncName(f interface{}) string {
 }
 
 // EnableAll returns true.
-func EnableAll(r *http.Request) bool {
+func EnableAll(_ *http.Request) bool {
 	return true
 }
 
-var profiles = make(map[string]*Profile)
-var profileLock sync.Mutex
+var cache = memstore.NewCache(100)
 
-// StoreMemory stores a profile in memory (concurrent-safe). Note that profiles
-// do not expire, so memory usage will increase until restart. This function is
-// provided as an example: it is not designed for production use.
-func StoreMemory(r *http.Request, p *Profile) {
-	profileLock.Lock()
-	defer profileLock.Unlock()
-	profiles[string(p.Id)] = p
+// storeCache stores the Profile in cache.
+func storeCache(_ *http.Request, p *Profile) {
+	cache.Add(p.Id, p)
 }
 
-// GetMemory fetches a profile stored by StoreMemory (concurrent-safe).
-func GetMemory(r *http.Request, id string) *Profile {
-	profileLock.Lock()
-	defer profileLock.Unlock()
-	return profiles[id]
+// getCache gets the Profile from cache.
+func getCache(_ *http.Request, id string) *Profile {
+	if profile, ok := cache.Get(id); ok {
+		return profile.(*Profile)
+	}
+	return nil
 }
 
 //go:generate esc -o static.go -pkg miniprofiler -prefix ../ui ../ui/include.partial.html ../ui/includes.css ../ui/includes.js ../ui/includes.tmpl ../ui/share.html

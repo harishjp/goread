@@ -21,19 +21,18 @@ import (
 	"net/http"
 	"time"
 
+	"cloud.google.com/go/datastore"
 	"github.com/harishjp/goread/config"
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
-	mpg "github.com/harishjp/goread/miniprofiler_gae"
-
-	"cloud.google.com/go/datastore"
 )
 
-func ClearRead(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func ClearRead(w http.ResponseWriter, r *http.Request) {
 	if !config.IsDevServer() {
 		return
 	}
 
+	c := r.Context()
 	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := &User{Id: cu.ID}
@@ -49,11 +48,12 @@ func ClearRead(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
-func ClearFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func ClearFeeds(w http.ResponseWriter, r *http.Request) {
 	if !config.IsDevServer() {
 		return
 	}
 
+	c := r.Context()
 	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	done := make(chan bool)
@@ -105,7 +105,7 @@ func ClearFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, fmt.Sprintf("%s?url=http://localhost:8080%s", routeUrl("add-subscription"), routeUrl("test-atom")), http.StatusFound)
 }
 
-func TestAtom(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func TestAtom(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(testAtom))
 }
 

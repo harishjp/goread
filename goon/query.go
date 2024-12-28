@@ -23,6 +23,7 @@ import (
 	"reflect"
 
 	"cloud.google.com/go/datastore"
+	"cloud.google.com/go/datastore/apiv1/datastorepb"
 	"google.golang.org/api/iterator"
 )
 
@@ -32,7 +33,10 @@ func (g *Goon) Count(q *datastore.Query) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	return result["query_count"].(int), nil
+	if res, ok := result["query_count"].(*datastorepb.Value); ok {
+		return int(res.GetIntegerValue()), nil
+	}
+	return -1, nil
 }
 
 // GetAll runs the query and returns all the keys that match the query, as well

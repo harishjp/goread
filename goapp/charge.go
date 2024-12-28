@@ -30,7 +30,6 @@ import (
 	"github.com/harishjp/goread/config"
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
-	mpg "github.com/harishjp/goread/miniprofiler_gae"
 )
 
 type Plan struct {
@@ -75,7 +74,8 @@ type StripeError struct {
 	} `json:"error"`
 }
 
-func Charge(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func Charge(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
@@ -124,7 +124,7 @@ func Charge(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
-func setCharge(c mpg.Context, r *http.Response) (*UserCharge, error) {
+func setCharge(c context.Context, r *http.Response) (*UserCharge, error) {
 	var sc StripeCustomer
 	defer r.Body.Close()
 	b, err := io.ReadAll(r.Body)
@@ -161,7 +161,8 @@ func setCharge(c mpg.Context, r *http.Response) (*UserCharge, error) {
 	return &uc, nil
 }
 
-func Account(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func Account(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
@@ -183,8 +184,8 @@ func Account(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func Uncheckout(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	uc, err := doUncheckout(c)
+func Uncheckout(w http.ResponseWriter, r *http.Request) {
+	uc, err := doUncheckout(r.Context())
 	if err != nil {
 		serveError(w, err)
 		return
@@ -193,7 +194,7 @@ func Uncheckout(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
-func doUncheckout(c mpg.Context) (*UserCharge, error) {
+func doUncheckout(c context.Context) (*UserCharge, error) {
 	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
@@ -230,7 +231,7 @@ func doUncheckout(c mpg.Context) (*UserCharge, error) {
 	return &uc, nil
 }
 
-func stripe(c mpg.Context, method, urlStr, body string) (*http.Response, error) {
+func stripe(c context.Context, method, urlStr, body string) (*http.Response, error) {
 	ctx, cf := context.WithTimeout(c, time.Minute)
 	defer cf()
 	req, err := http.NewRequestWithContext(ctx, method, fmt.Sprintf("https://api.stripe.com/v1/%s", urlStr), strings.NewReader(body))

@@ -45,11 +45,12 @@ import (
 	"google.golang.org/api/iterator"
 )
 
-func LoginRedirect(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func LoginRedirect(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
-func ImportOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func ImportOpml(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
@@ -99,7 +100,8 @@ func ImportOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	}, "import-reader")
 }
 
-func AddSubscription(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func AddSubscription(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	backupOPML(c)
 	cu := config.GetSession(c)
 	url := r.FormValue("url")
@@ -131,9 +133,9 @@ func AddSubscription(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 
 const oldDuration = time.Hour * 24 * 7 * 2 // two weeks
 const numStoriesLimit = 1000
-const accountFreeDuration = 30 * time.Hour * 24 // 30 days
 
-func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func ListFeeds(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := &User{Id: cu.ID}
@@ -156,17 +158,14 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	trialRemaining := 0
 	read := make(Read)
 	var uf Opml
-	c.Step("unmarshal user data", func(c mpg.Context) {
+	mpg.Step(c, "unmarshal user data", func(c context.Context) {
 		gob.NewDecoder(bytes.NewReader(ud.Read)).Decode(&read)
 		json.Unmarshal(ud.Opml, &uf)
 	})
 	var feeds []*Feed
 	opmlMap := make(map[string]*OpmlOutline)
 	var merr error
-	c.Step("fetch feeds", func(c mpg.Context) {
-		ctx, cf := context.WithTimeout(c, time.Minute)
-		defer cf()
-		gn := goon.FromContext(ctx)
+	mpg.Step(c, "fetch feeds", func(c context.Context) {
 		for _, outline := range uf.Outline {
 			if outline.XmlUrl == "" {
 				for _, so := range outline.Outline {
@@ -192,19 +191,18 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	numStories := 0
 	var stars []string
 
-	c.Step(fmt.Sprintf("feed unreads: %v", u.Read), func(c mpg.Context) {
+	mpg.Step(c, fmt.Sprintf("feed unreads: %v", u.Read), func(c context.Context) {
 		queue := make(chan *Feed)
 		taskQueue, _ := task.NewCloudTaskQueue(c)
 		defer taskQueue.Close()
 		wg := sync.WaitGroup{}
 		feedProc := func() {
 			for f := range queue {
-				c.Step(f.Title, func(c mpg.Context) {
+				mpg.Step(c, f.Title, func(c context.Context) {
 					defer wg.Done()
 					var stories []*Story
 					ctx, cf := context.WithTimeout(c, time.Minute)
 					defer cf()
-					gn := goon.FromContext(ctx)
 
 					if !f.Date.Before(u.Read) {
 						fk := gn.Key(f)
@@ -261,8 +259,7 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 			queue <- f
 		}
 		close(queue)
-		c.Step("stars", func(c mpg.Context) {
-			gn := goon.FromContext(c)
+		mpg.Step(c, "stars", func(c context.Context) {
 			q := datastore.NewQuery(gn.Kind(&UserStar{})).
 				Ancestor(ud.Parent).
 				KeysOnly().
@@ -278,7 +275,7 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		wg.Wait()
 	})
 	if numStories > 0 {
-		c.Step("numStories", func(c mpg.Context) {
+		mpg.Step(c, "numStories", func(c context.Context) {
 			stories := make([]*Story, 0, numStories)
 			for _, v := range fl {
 				stories = append(stories, v...)
@@ -302,7 +299,7 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	if fixRead {
-		c.Step("fix read", func(c mpg.Context) {
+		mpg.Step(c, "fix read", func(c context.Context) {
 			nread := make(Read)
 			for k, v := range fl {
 				for _, s := range v {
@@ -372,7 +369,7 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	}
 	l += fmt.Sprintf(", len opml %v", len(ud.Opml))
 	log.Infof(c, l)
-	c.Step("json marshal", func(c mpg.Context) {
+	mpg.Step(c, "json marshal", func(c context.Context) {
 		gn := goon.FromContext(c)
 		o := struct {
 			Opml           []*OpmlOutline
@@ -412,7 +409,8 @@ func ListFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func MarkRead(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func MarkRead(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	read := make(Read)
@@ -444,7 +442,8 @@ func MarkRead(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func MarkUnread(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func MarkUnread(_ http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	read := make(Read)
@@ -470,7 +469,8 @@ func MarkUnread(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func GetContents(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func GetContents(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	var reqs []struct {
 		Feed  string
 		Story string
@@ -497,7 +497,8 @@ func GetContents(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
-func ExportOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func ExportOpml(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	gn := goon.FromContext(c)
 	cu := config.GetSession(c)
 	var u User
@@ -536,7 +537,8 @@ func downloadOpml(w http.ResponseWriter, ob []byte, email string) {
 	fmt.Fprint(w, xml.Header, string(b))
 }
 
-func UploadOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func UploadOpml(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	opml := Opml{}
 	if err := json.Unmarshal([]byte(r.FormValue("opml")), &opml.Outline); err != nil {
 		serveError(w, err)
@@ -573,7 +575,7 @@ func UploadOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func backupOPML(c mpg.Context) {
+func backupOPML(c context.Context) {
 	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
@@ -594,7 +596,8 @@ func backupOPML(c mpg.Context) {
 	gn.Put(&uo)
 }
 
-func FeedHistory(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func FeedHistory(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
@@ -623,7 +626,8 @@ func FeedHistory(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func SaveOptions(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func SaveOptions(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	gn.RunInTransaction(func(gn *goon.Goon) error {
@@ -639,7 +643,8 @@ func SaveOptions(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func GetFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func GetFeed(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	gn := goon.FromContext(c)
 	f := Feed{Url: r.FormValue("f")}
 	var stars []string
@@ -654,7 +659,7 @@ func GetFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	} else {
 		// grab the stars list on the first run
 		wg.Add(1)
-		go c.Step("stars", func(c mpg.Context) {
+		go mpg.Step(c, "stars", func(c context.Context) {
 			gn := goon.FromContext(c)
 			usk := starKey(c, f.Url, "")
 			q := datastore.NewQuery(gn.Kind(&UserStar{})).Ancestor(gn.Key(usk).Parent).KeysOnly()
@@ -699,7 +704,8 @@ func GetFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
-func DeleteAccount(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	if _, err := doUncheckout(c); err != nil {
 		log.Errorf(c, "uncheckout err: %v", err)
 	}
@@ -721,7 +727,8 @@ func DeleteAccount(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, routeUrl("logout"), http.StatusFound)
 }
 
-func SetStar(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func SetStar(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	feed := r.FormValue("feed")
 	story := r.FormValue("story")
 	if len(feed) == 0 || len(story) == 0 {
@@ -742,7 +749,8 @@ func SetStar(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func GetStars(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func GetStars(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	gn := goon.FromContext(c)
 	cu := config.GetSession(c)
 	u := User{Id: cu.ID}

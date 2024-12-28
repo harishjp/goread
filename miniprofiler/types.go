@@ -125,14 +125,7 @@ func (p *Profile) Finalize() {
 	p.DurationMilliseconds = Since(p.start)
 	p.Root.DurationMilliseconds = p.DurationMilliseconds
 
-	Store(p.r, p)
-}
-
-// ProfileFromJson returns a Profile from JSON data.
-func ProfileFromJson(b []byte) *Profile {
-	p := Profile{}
-	json.Unmarshal(b, &p)
-	return &p
+	storeCache(p.r, p)
 }
 
 // Json converts a profile to JSON.

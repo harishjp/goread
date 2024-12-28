@@ -36,13 +36,13 @@ import (
 	"cloud.google.com/go/datastore"
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
-	mpg "github.com/harishjp/goread/miniprofiler_gae"
 	"github.com/harishjp/goread/task"
 	"golang.org/x/net/html/charset"
 	"google.golang.org/api/iterator"
 )
 
-func ImportOpmlTask(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func ImportOpmlTask(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	gn := goon.FromContext(c)
 	userid := r.FormValue("user")
 	filePath := r.FormValue("key")
@@ -146,7 +146,8 @@ func ImportOpmlTask(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 
 const IMPORT_LIMIT = 10
 
-func SubscribeCallback(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func SubscribeCallback(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	gn := goon.FromContext(c)
 	furl := r.FormValue("feed")
 	b, _ := base64.URLEncoding.DecodeString(furl)
@@ -185,7 +186,8 @@ func SubscribeCallback(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 }
 
 // Task used to subscribe a feed to push.
-func SubscribeFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func SubscribeFeed(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	gn := goon.FromContext(c)
 	f := Feed{Url: r.FormValue("feed")}
 	if err := gn.Get(&f); err != nil {
@@ -226,7 +228,8 @@ func SubscribeFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func UpdateFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func UpdateFeeds(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	q := datastore.NewQuery("F").KeysOnly().FilterField("n", "<=", time.Now())
 	q = q.Limit(10 * 60 * 2) // 10/s queue, 2 min cron
 	c1, cf := context.WithTimeout(c, time.Minute)
@@ -259,7 +262,7 @@ func UpdateFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	log.Infof(c, "updating %d feeds", i)
 }
 
-func fetchFeed(c mpg.Context, origUrl, fetchUrl string) (*Feed, []*Story, error) {
+func fetchFeed(c context.Context, origUrl, fetchUrl string) (*Feed, []*Story, error) {
 	u, err := url.Parse(fetchUrl)
 	if err != nil {
 		return nil, nil, err
@@ -301,11 +304,11 @@ func fetchFeed(c mpg.Context, origUrl, fetchUrl string) (*Feed, []*Story, error)
 		return ParseFeed(c, header.Get("Content-Type"), origUrl, fetchUrl, b)
 	} else {
 		log.Warningf(c, "fetch feed error: %v", err)
-		return nil, nil, fmt.Errorf("Could not fetch feed")
+		return nil, nil, fmt.Errorf("could not fetch feed")
 	}
 }
 
-func updateFeed(c mpg.Context, url string, feed *Feed, stories []*Story, updateAll, fromSub, updateLast bool) error {
+func updateFeed(c context.Context, url string, feed *Feed, stories []*Story, updateAll, fromSub, updateLast bool) error {
 	gn := goon.FromContext(c)
 	f := Feed{Url: url}
 	if err := gn.Get(&f); err != nil {
@@ -415,7 +418,8 @@ func updateFeed(c mpg.Context, url string, feed *Feed, stories []*Story, updateA
 	return err
 }
 
-func UpdateFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func UpdateFeed(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	c1, cf := context.WithTimeout(c, time.Minute)
 	defer cf()
 	gn := goon.FromContext(c1)
@@ -470,7 +474,8 @@ func UpdateFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	f.Subscribe(c)
 }
 
-func UpdateFeedLast(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func UpdateFeedLast(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	gn := goon.FromContext(c)
 	url := r.FormValue("feed")
 	log.Debugf(c, "update feed last %s", url)
@@ -482,7 +487,8 @@ func UpdateFeedLast(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	gn.Put(&f)
 }
 
-func DeleteOldFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func DeleteOldFeeds(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	ctx, cf := context.WithTimeout(c, time.Minute)
 	defer cf()
 	gn := goon.FromContext(ctx)
@@ -532,7 +538,8 @@ func DeleteOldFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func DeleteOldFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func DeleteOldFeed(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	ctx, cf := context.WithTimeout(c, time.Minute)
 	defer cf()
 	g := goon.FromContext(ctx)

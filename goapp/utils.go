@@ -135,7 +135,7 @@ func InitVars() {
 	}
 }
 
-func includes(c mpg.Context, _ http.ResponseWriter, _ *http.Request) *Includes {
+func includes(c context.Context, _ http.ResponseWriter, _ *http.Request) *Includes {
 	i := &Includes{
 		Angular:      Angular,
 		BootstrapCss: BootstrapCss,
@@ -144,7 +144,7 @@ func includes(c mpg.Context, _ http.ResponseWriter, _ *http.Request) *Includes {
 		Jquery:       Jquery,
 		JqueryUI:     JqueryUI,
 		Underscore:   Underscore,
-		MiniProfiler: c.Includes(),
+		MiniProfiler: mpg.Includes(c),
 		SubURL:       subURL,
 		IsDev:        config.IsDevServer(),
 		ClientID:     config.ClientID(),

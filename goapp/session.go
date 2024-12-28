@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/harishjp/goread/config"
 	"github.com/harishjp/goread/goon"
-	mpg "github.com/harishjp/goread/miniprofiler_gae"
 	"google.golang.org/api/idtoken"
 )
 
@@ -109,7 +108,7 @@ func getPayload(r *http.Request) (*idtoken.Payload, error) {
 	return validator.Validate(r.Context(), credential, config.ClientID())
 }
 
-func (h *SessionHandler) Login(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func (h *SessionHandler) Login(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = r.Body.Close() }()
 
 	if ok, msg := verfiyToken(r); !ok {
@@ -130,7 +129,7 @@ func (h *SessionHandler) Login(c mpg.Context, w http.ResponseWriter, r *http.Req
 	u := &User{
 		Id: data.Subject,
 	}
-	gn := goon.FromContext(c)
+	gn := goon.FromContext(r.Context())
 	if err = gn.Get(u); errors.Is(err, datastore.ErrNoSuchEntity) {
 		u.Email = data.Claims["email"].(string)
 		u.Read = time.Now().Add(-time.Hour * 24)
@@ -147,7 +146,7 @@ func (h *SessionHandler) Login(c mpg.Context, w http.ResponseWriter, r *http.Req
 	}
 }
 
-func (h *SessionHandler) Logout(ctx mpg.Context, w http.ResponseWriter, r *http.Request) {
+func (h *SessionHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	sessionCookie, err := r.Cookie(sessionCookieName)
 	if !errors.Is(err, http.ErrNoCookie) {
 		sessionCookie.Expires = time.Now().Add(-time.Hour)

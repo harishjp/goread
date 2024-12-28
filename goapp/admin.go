@@ -26,11 +26,10 @@ import (
 	"cloud.google.com/go/datastore"
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
-	mpg "github.com/harishjp/goread/miniprofiler_gae"
 )
 
-func AllFeedsOpml(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	gn := goon.FromContext(c)
+func AllFeedsOpml(w http.ResponseWriter, r *http.Request) {
+	gn := goon.FromContext(r.Context())
 	q := datastore.NewQuery(gn.Kind(&Feed{})).KeysOnly()
 	keys, _ := gn.GetAll(q, nil, true)
 	fs := make([]*Feed, len(keys))
@@ -60,15 +59,15 @@ func feedsToOpml(feeds []*Feed) []byte {
 	return b
 }
 
-func AllFeeds(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	gn := goon.FromContext(c)
+func AllFeeds(w http.ResponseWriter, r *http.Request) {
+	gn := goon.FromContext(r.Context())
 	q := datastore.NewQuery(gn.Kind(&Feed{})).KeysOnly()
 	keys, _ := gn.GetAll(q, nil, true)
 	templates.ExecuteTemplate(w, "admin-all-feeds.html", keys)
 }
 
-func AdminFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	gn := goon.FromContext(c)
+func AdminFeed(w http.ResponseWriter, r *http.Request) {
+	gn := goon.FromContext(r.Context())
 	f := Feed{Url: r.FormValue("f")}
 	if err := gn.Get(&f); err != nil {
 		serveError(w, err)
@@ -100,7 +99,8 @@ func AdminFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func AdminUpdateFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func AdminUpdateFeed(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	url := r.FormValue("f")
 	if feed, stories, err := fetchFeed(c, url, url); err == nil {
 		updateFeed(c, url, feed, stories, true, false, false)
@@ -110,7 +110,8 @@ func AdminUpdateFeed(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func AdminSubHub(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func AdminSubHub(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	gn := goon.FromContext(c)
 	f := Feed{Url: r.FormValue("f")}
 	if err := gn.Get(&f); err != nil {
@@ -122,7 +123,7 @@ func AdminSubHub(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "subscribed")
 }
 
-func AdminDateFormats(_ mpg.Context, w http.ResponseWriter, _ *http.Request) {
+func AdminDateFormats(w http.ResponseWriter, _ *http.Request) {
 	dfs := make(map[string]df)
 	for i, v := range invalidDateBuffer.Items() {
 		dfs[fmt.Sprintf("_dateformat-%v", i)] = v
@@ -132,8 +133,8 @@ func AdminDateFormats(_ mpg.Context, w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-func AdminStats(c mpg.Context, w http.ResponseWriter, r *http.Request) {
-	gn := goon.FromContext(c)
+func AdminStats(w http.ResponseWriter, r *http.Request) {
+	gn := goon.FromContext(r.Context())
 	uc, _ := gn.Count(datastore.NewQuery(gn.Kind(&User{})))
 	templates.ExecuteTemplate(w, "admin-stats.html", struct {
 		Users int
@@ -142,7 +143,8 @@ func AdminStats(c mpg.Context, w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func AdminUser(c mpg.Context, w http.ResponseWriter, r *http.Request) {
+func AdminUser(w http.ResponseWriter, r *http.Request) {
+	c := r.Context()
 	gn := goon.FromContext(c)
 	q := datastore.NewQuery(gn.Kind(&User{})).Limit(1)
 	q = q.FilterField("e", "=", r.FormValue("u"))

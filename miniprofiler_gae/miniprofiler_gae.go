@@ -18,64 +18,40 @@ package miniprofiler_gae
 
 import (
 	"context"
+	"html/template"
 	"net/http"
 
 	"github.com/harishjp/goread/appstats"
-	"github.com/harishjp/goread/memstore"
 	"github.com/harishjp/goread/miniprofiler"
 )
 
-func init() {
-	miniprofiler.Get = getCache
-	miniprofiler.Store = storeCache
-}
+type timerKey struct{}
 
-var cache = memstore.NewCache(100)
-
-// storeCache stores the Profile in cache.
-func storeCache(_ *http.Request, p *miniprofiler.Profile) {
-	cache.Add(p.Id, p)
-}
-
-// getCache gets the Profile from cache.
-func getCache(_ *http.Request, id string) *miniprofiler.Profile {
-	profile, ok := cache.Get(id)
-	if ok {
-		return profile.(*miniprofiler.Profile)
-	}
-	return nil
-}
-
-type Context struct {
-	appstats.Context
-	miniprofiler.Timer
-}
-
-func (c Context) Step(name string, f func(Context)) {
-	if c.Timer != nil {
-		c.Timer.Step(name, func(t miniprofiler.Timer) {
-			f(Context{
-				Context: c.Context,
-				Timer:   t,
-			})
+func Step(ctx context.Context, name string, f func(context.Context)) {
+	if p, ok := ctx.Value(timerKey{}).(miniprofiler.Timer); ok && p != nil {
+		p.Step(name, func(t miniprofiler.Timer) {
+			f(context.WithValue(ctx, timerKey{}, t))
 		})
 	} else {
-		f(c)
+		f(ctx)
 	}
 }
 
-// NewHandler returns a profiled, appstats-aware context.Context.
-func NewHandler(f func(Context, http.ResponseWriter, *http.Request)) http.Handler {
-	return appstats.NewHandler(func(c context.Context, w http.ResponseWriter, r *http.Request) {
-		h := miniprofiler.NewHandler(func(t miniprofiler.Timer, w http.ResponseWriter, r *http.Request) {
-			pc := Context{
-				Context: c.(appstats.Context),
-				Timer:   t,
-			}
-			t.SetName(miniprofiler.FuncName(f))
-			f(pc, w, r)
-			t.AddCustomLink("appstats", pc.URL())
-		})
-		h.ServeHTTP(w, r)
+func Includes(ctx context.Context) template.HTML {
+	if p, ok := ctx.Value(timerKey{}).(miniprofiler.Timer); ok {
+		return p.Includes()
+	}
+	return ""
+}
+
+func Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := miniprofiler.NewProfile(w, r, r.URL.Path)
+		defer p.Finalize()
+		r = r.WithContext(context.WithValue(r.Context(), timerKey{}, p))
+		stats, rw := appstats.NewStats(w, r)
+		defer stats.Save(r)
+		p.AddCustomLink("appstats", stats.URL())
+		next.ServeHTTP(rw, r)
 	})
 }

@@ -17,9 +17,7 @@
 package appstats
 
 import (
-	"context"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"time"
@@ -27,16 +25,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/harishjp/goread/config"
 	"github.com/harishjp/goread/memstore"
-)
-
-var (
-	// RecordFraction is the fraction of requests to record.
-	// Set to a number between 0.0 (none) and 1.0 (all).
-	RecordFraction = 1.0
-
-	// ShouldRecord is the function used to determine if recording will occur
-	// for a given request. The default is to use RecordFraction.
-	ShouldRecord = DefaultShouldRecord
 )
 
 const (
@@ -47,62 +35,51 @@ const (
 )
 
 func Init(router *mux.Router) {
-	router.HandleFunc(serveURL, appstatsHandler)
+	router.PathPrefix(serveURL).HandlerFunc(appstatsHandler)
 }
 
-// DefaultShouldRecord will record a request based on RecordFraction.
-func DefaultShouldRecord(_ *http.Request) bool {
-	if RecordFraction >= 1.0 {
-		return true
-	}
-
-	return rand.Float64() < RecordFraction
+type Stats struct {
+	requestStats
 }
 
-// Context is a timing-aware context.Context.
-type Context struct {
-	context.Context
-	header http.Header
-	stats  *requestStats
-}
-
-// NewContext creates a new timing-aware context from req.
-func NewContext(req *http.Request) Context {
-	c := req.Context()
+// NewStats creates Stats and ResponseWriter which wraps and updates the stats for status.
+func NewStats(w http.ResponseWriter, r *http.Request) (*Stats, http.ResponseWriter) {
 	var uname string
 	var admin bool
-	if u := config.GetSession(c); u != nil {
+	if u := config.GetSession(r.Context()); u != nil {
 		uname = u.Name
 		admin = u.Admin
 	}
-	return Context{
-		Context: c,
-		header:  req.Header,
-		stats: &requestStats{
-			User:   uname,
-			Admin:  admin,
-			Method: req.Method,
-			Path:   req.URL.Path,
-			Query:  req.URL.RawQuery,
-			Start:  time.Now(),
-		},
+	stats := Stats{requestStats{
+		User:   uname,
+		Admin:  admin,
+		Method: r.Method,
+		Path:   r.URL.Path,
+		Query:  r.URL.RawQuery,
+		Start:  time.Now(),
+	}}
+
+	rw := responseWriter{
+		ResponseWriter: w,
+		s:              &stats.requestStats,
 	}
+	return &stats, rw
 }
 
 var fullStatsCache = memstore.NewCache(1000)
 var partStatsBuffer = memstore.NewCyclicBuffer[*requestStats](modulus)
 
-func (c Context) save() {
-	c.stats.Duration = time.Since(c.stats.Start)
+func (s *Stats) Save(r *http.Request) {
+	s.Duration = time.Since(s.Start)
 
 	full := statsFull{
-		Header: c.header,
-		Stats:  c.stats,
+		Header: r.Header,
+		Stats:  &s.requestStats,
 	}
-	fullKey := c.stats.FullKey()
+	fullKey := s.FullKey()
 	fullStatsCache.Add(fullKey, full)
 
-	part := *c.stats
+	part := s.requestStats
 	for i := range part.RPCStats {
 		part.RPCStats[i].StackData = ""
 		part.RPCStats[i].In = ""
@@ -112,46 +89,23 @@ func (c Context) save() {
 }
 
 // URL returns the appstats URL for the current request.
-func (c Context) URL() string {
+func (s *Stats) URL() string {
 	u := url.URL{
 		Path:     detailsURL,
-		RawQuery: fmt.Sprintf("time=%v", c.stats.Start.Nanosecond()),
+		RawQuery: fmt.Sprintf("time=%v", s.Start.Nanosecond()),
 	}
 	return u.String()
 }
 
-// handler is an http.Handler that records RPC statistics.
-type handler struct {
-	f func(context.Context, http.ResponseWriter, *http.Request)
-}
-
-// NewHandler returns a new Handler that will execute f.
-func NewHandler(f func(context.Context, http.ResponseWriter, *http.Request)) http.Handler {
-	return handler{
-		f: f,
-	}
-}
-
-// NewHandlerFunc returns a new HandlerFunc that will execute f.
-func NewHandlerFunc(f func(context.Context, http.ResponseWriter, *http.Request)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		h := handler{
-			f: f,
-		}
-		h.ServeHTTP(w, r)
-	}
-}
-
 type responseWriter struct {
 	http.ResponseWriter
-
-	c Context
+	s *requestStats
 }
 
 func (r responseWriter) Write(b []byte) (int, error) {
 	// Emulate the behavior of http.ResponseWriter.Write since it doesn't
 	// call our WriteHeader implementation.
-	if r.c.stats.Status == 0 {
+	if r.s.Status == 0 {
 		r.WriteHeader(http.StatusOK)
 	}
 
@@ -159,20 +113,6 @@ func (r responseWriter) Write(b []byte) (int, error) {
 }
 
 func (r responseWriter) WriteHeader(i int) {
-	r.c.stats.Status = i
+	r.s.Status = i
 	r.ResponseWriter.WriteHeader(i)
-}
-
-func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if ShouldRecord(r) {
-		c := NewContext(r)
-		rw := responseWriter{
-			ResponseWriter: w,
-			c:              c,
-		}
-		h.f(c, rw, r)
-		c.save()
-	} else {
-		h.f(r.Context(), w, r)
-	}
 }
