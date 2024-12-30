@@ -1,3 +1,7 @@
 auth.json
-build.sh
 goread
+.idea
+task.txt
+
+# Config should be uploaded to gcloud but not into git
+config.json

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/harishjp/goread/config"
 	"github.com/harishjp/goread/goon"
+	"github.com/harishjp/goread/miniprofiler"
 	"google.golang.org/api/idtoken"
 )
 
@@ -38,7 +39,8 @@ func (h *SessionHandler) Middleware(next http.Handler) http.Handler {
 			}
 		}
 		path := r.URL.Path
-		if strings.HasPrefix(path, "/admin/") && (email == "" || email != config.AdminEmail()) {
+		if (strings.HasPrefix(path, "/admin/") || strings.HasPrefix(path, miniprofiler.PATH)) &&
+			(email == "" || email != config.AdminEmail()) {
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
@@ -47,7 +49,7 @@ func (h *SessionHandler) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		if strings.HasPrefix(path, "/tasks/") && r.Header.Get("X-Appengine-Taskname") == "" {
-			http.Error(w, "Bad Request - Invalid Task", http.StatusBadRequest)
+			http.Error(w, "Bad Request", http.StatusBadRequest)
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -69,6 +71,12 @@ func (h *SessionHandler) createSession(payload *idtoken.Payload, w http.Response
 		Email:   email,
 		Admin:   email == config.AdminEmail(),
 		Expires: expiryTime,
+	}
+	now := time.Now()
+	for k, v := range h.sessions {
+		if v.Expires.After(now) {
+			delete(h.sessions, k)
+		}
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,

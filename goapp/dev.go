@@ -91,7 +91,6 @@ func ClearFeeds(w http.ResponseWriter, r *http.Request) {
 		&Story{},
 		&StoryContent{},
 		&Log{},
-		&UserOpml{},
 	}
 	for _, i := range types {
 		k := gn.Kind(i)

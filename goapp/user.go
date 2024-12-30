@@ -17,10 +17,7 @@
 package goread
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
-	"encoding/gob"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -30,7 +27,6 @@ import (
 	"net/url"
 	"os"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 
@@ -58,7 +54,6 @@ func ImportOpml(w http.ResponseWriter, r *http.Request) {
 		serveError(w, err)
 		return
 	}
-	backupOPML(c)
 	src, _, err := r.FormFile("file")
 	if err != nil {
 		serveError(w, err)
@@ -102,7 +97,6 @@ func ImportOpml(w http.ResponseWriter, r *http.Request) {
 
 func AddSubscription(w http.ResponseWriter, r *http.Request) {
 	c := r.Context()
-	backupOPML(c)
 	cu := config.GetSession(c)
 	url := r.FormValue("url")
 	o := &OpmlOutline{
@@ -128,7 +122,6 @@ func AddSubscription(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		http.Redirect(w, r, routeUrl("main"), http.StatusFound)
 	}
-	backupOPML(c)
 }
 
 const oldDuration = time.Hour * 24 * 7 * 2 // two weeks
@@ -156,10 +149,10 @@ func ListFeeds(w http.ResponseWriter, r *http.Request) {
 		l += ", u.Read"
 	}
 	trialRemaining := 0
-	read := make(Read)
+	var read Read
 	var uf Opml
 	mpg.Step(c, "unmarshal user data", func(c context.Context) {
-		gob.NewDecoder(bytes.NewReader(ud.Read)).Decode(&read)
+		read = DecodeRead(ud.Read)
 		json.Unmarshal(ud.Opml, &uf)
 	})
 	var feeds []*Feed
@@ -303,17 +296,14 @@ func ListFeeds(w http.ResponseWriter, r *http.Request) {
 			nread := make(Read)
 			for k, v := range fl {
 				for _, s := range v {
-					rs := readStory{Feed: k, Story: s.Id}
-					if read[rs] {
-						nread[rs] = true
+					if read.Get(k, s.Id) {
+						nread.Set(k, s.Id)
 					}
 				}
 			}
 			if len(nread) != len(read) {
 				read = nread
-				var b bytes.Buffer
-				gob.NewEncoder(&b).Encode(&read)
-				ud.Read = b.Bytes()
+				ud.Read = read.Encode()
 				putUD = true
 				l += ", fix read"
 			}
@@ -323,7 +313,7 @@ func ListFeeds(w http.ResponseWriter, r *http.Request) {
 	for k, v := range fl {
 		newStories := make([]*Story, 0, len(v))
 		for _, s := range v {
-			if !read[readStory{Feed: k, Story: s.Id}] {
+			if !read.Get(k, s.Id) {
 				newStories = append(newStories, s)
 			}
 		}
@@ -350,7 +340,6 @@ func ListFeeds(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if updatedLinks {
-		backupOPML(c)
 		if o, err := json.Marshal(&uf); err == nil {
 			ud.Opml = o
 			putUD = true
@@ -413,8 +402,10 @@ func MarkRead(w http.ResponseWriter, r *http.Request) {
 	c := r.Context()
 	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
-	read := make(Read)
-	var stories []readStory
+	var stories []struct {
+		Feed  string `json:"Feed"`
+		Story string `json:"Story"`
+	}
 	defer r.Body.Close()
 	b, _ := io.ReadAll(r.Body)
 	if err := json.Unmarshal(b, &stories); err != nil {
@@ -430,13 +421,11 @@ func MarkRead(w http.ResponseWriter, r *http.Request) {
 		if err := gn.Get(ud); err != nil {
 			return err
 		}
-		gob.NewDecoder(bytes.NewReader(ud.Read)).Decode(&read)
+		read := DecodeRead(ud.Read)
 		for _, s := range stories {
-			read[s] = true
+			read.Set(s.Feed, s.Story)
 		}
-		var b bytes.Buffer
-		gob.NewEncoder(&b).Encode(&read)
-		ud.Read = b.Bytes()
+		ud.Read = read.Encode()
 		_, err := gn.Put(ud)
 		return err
 	})
@@ -446,10 +435,8 @@ func MarkUnread(_ http.ResponseWriter, r *http.Request) {
 	c := r.Context()
 	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
-	read := make(Read)
 	f := r.FormValue("feed")
 	s := r.FormValue("story")
-	rs := readStory{Feed: f, Story: s}
 	u := &User{Id: cu.ID}
 	ud := &UserData{
 		Id:     "data",
@@ -459,11 +446,9 @@ func MarkUnread(_ http.ResponseWriter, r *http.Request) {
 		if err := gn.Get(ud); err != nil {
 			return err
 		}
-		gob.NewDecoder(bytes.NewReader(ud.Read)).Decode(&read)
-		delete(read, rs)
-		b := bytes.Buffer{}
-		gob.NewEncoder(&b).Encode(&read)
-		ud.Read = b.Bytes()
+		read := DecodeRead(ud.Read)
+		read.Del(f, s)
+		ud.Read = read.Encode()
 		_, err := gn.Put(ud)
 		return err
 	})
@@ -550,7 +535,6 @@ func UploadOpml(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	backupOPML(c)
 	cu := config.GetSession(c)
 	gn := goon.FromContext(c)
 	u := User{Id: cu.ID}
@@ -571,58 +555,25 @@ func UploadOpml(w http.ResponseWriter, r *http.Request) {
 			serveError(w, err)
 			return
 		}
-		backupOPML(c)
 	}
-}
-
-func backupOPML(c context.Context) {
-	cu := config.GetSession(c)
-	gn := goon.FromContext(c)
-	u := User{Id: cu.ID}
-	ud := UserData{Id: "data", Parent: gn.Key(&u)}
-	if err := gn.Get(&ud); err != nil {
-		return
-	}
-	uo := UserOpml{Id: time.Now().UnixNano(), Parent: gn.Key(&u)}
-	buf := &bytes.Buffer{}
-	if gz, err := gzip.NewWriterLevel(buf, gzip.BestCompression); err == nil {
-		gz.Write(ud.Opml)
-		gz.Close()
-		uo.Compressed = buf.Bytes()
-	} else {
-		log.Errorf(c, "gz err: %v", err)
-		uo.Opml = ud.Opml
-	}
-	gn.Put(&uo)
 }
 
 func FeedHistory(w http.ResponseWriter, r *http.Request) {
-	c := r.Context()
-	cu := config.GetSession(c)
-	gn := goon.FromContext(c)
-	u := User{Id: cu.ID}
-	uk := gn.Key(&u)
 	if v := r.FormValue("v"); len(v) == 0 {
-		q := datastore.NewQuery(gn.Kind(&UserOpml{})).Ancestor(uk).KeysOnly()
-		keys, err := gn.GetAll(q, nil, true)
-		if err != nil {
-			serveError(w, err)
-			return
-		}
-		times := make([]string, len(keys))
-		for i, k := range keys {
-			times[i] = strconv.FormatInt(k.ID, 10)
-		}
+		times := []string{"1"}
 		b, _ := json.Marshal(&times)
 		w.Write(b)
 	} else {
-		a, _ := strconv.ParseInt(v, 10, 64)
-		uo := UserOpml{Id: a, Parent: uk}
-		if err := gn.Get(&uo); err != nil {
+		c := r.Context()
+		cu := config.GetSession(c)
+		gn := goon.FromContext(c)
+		u := User{Id: cu.ID}
+		ud := UserData{Id: "data", Parent: gn.Key(&u)}
+		if err := gn.Get(&ud); err != nil {
 			serveError(w, err)
 			return
 		}
-		downloadOpml(w, uo.opml(), cu.Email)
+		downloadOpml(w, ud.Opml, cu.Email)
 	}
 }
 

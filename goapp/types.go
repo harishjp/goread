@@ -21,6 +21,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/base64"
+	"encoding/gob"
 	"fmt"
 	"io"
 	"net/url"
@@ -54,7 +55,7 @@ func (u *User) String() string {
 	return u.Email
 }
 
-// parent: User, key: "data"
+// UserData parent: User, key: "data"
 type UserData struct {
 	_kind  string         `goon:"kind,UD"`
 	Id     string         `datastore:"-" goon:"id"`
@@ -63,35 +64,13 @@ type UserData struct {
 	Read   []byte         `datastore:"r,noindex"`
 }
 
-// parent: User, key: time.Now().UnixNano()
-type UserOpml struct {
-	_kind      string         `goon:"kind,UO"`
-	Id         int64          `datastore:"-" goon:"id"`
-	Parent     *datastore.Key `datastore:"-" goon:"parent"`
-	Opml       []byte         `datastore:"o,noindex"`
-	Compressed []byte         `datastore:"z,noindex"`
-}
-
-func (uo *UserOpml) opml() []byte {
-	if len(uo.Compressed) > 0 {
-		buf := bytes.NewReader(uo.Compressed)
-		if gz, err := gzip.NewReader(buf); err == nil {
-			defer gz.Close()
-			if b, err := io.ReadAll(gz); err == nil {
-				return b
-			}
-		}
-	}
-	return uo.Opml
-}
-
 type UserStarFeed struct {
 	_kind  string         `goon:"kind,USF"`
 	Id     string         `datastore:"-" goon:"id"`
 	Parent *datastore.Key `datastore:"-" goon:"parent"`
 }
 
-// parent: UserStarFeed, key: Story.Key.Encode()
+// UserStar parent: UserStarFeed, key: Story.Key.Encode()
 type UserStar struct {
 	_kind   string         `goon:"kind,US"`
 	Id      string         `datastore:"-" goon:"id"`
@@ -114,11 +93,48 @@ func starID(key *datastore.Key) string {
 	return fmt.Sprintf("%s|%s", key.Parent.Name, key.Name)
 }
 
-type readStory struct {
-	Feed, Story string
+type Read map[string]map[string]bool
+
+func DecodeRead(b []byte) Read {
+	r := make(Read)
+	if len(b) > 0 {
+		err := gob.NewDecoder(bytes.NewReader(b)).Decode(&r)
+		if err != nil {
+			log.Errorf(context.Background(), "goon.DecodeRead: %v", err)
+		}
+	}
+	return r
 }
 
-type Read map[readStory]bool
+func (r Read) Encode() []byte {
+	var buf bytes.Buffer
+	err := gob.NewEncoder(&buf).Encode(r)
+	if err != nil {
+		log.Errorf(context.Background(), "goon.Encode: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func (r Read) Set(feed, story string) {
+	if m, ok := r[feed]; ok {
+		m[story] = true
+	} else {
+		r[feed] = map[string]bool{story: true}
+	}
+}
+
+func (r Read) Del(feed, story string) {
+	if m, ok := r[feed]; ok {
+		delete(m, story)
+	}
+}
+
+func (r Read) Get(feed, story string) bool {
+	if m, ok := r[feed]; ok {
+		return m[story]
+	}
+	return false
+}
 
 type Feed struct {
 	_kind      string        `goon:"kind,F"`
@@ -136,7 +152,6 @@ type Feed struct {
 	Subscribed time.Time     `datastore:"s,noindex" json:"-"`
 	Average    time.Duration `datastore:"a,noindex" json:"-"`
 	LastViewed time.Time     `datastore:"v" json:"-"`
-	NoAds      bool          `datastore:"o,noindex" json:"-"`
 }
 
 func (f *Feed) Subscribe(c context.Context) {
@@ -170,7 +185,7 @@ func (f *Feed) NotViewed() bool {
 	return time.Since(f.LastViewed) > notViewedDisabled
 }
 
-// parent: Feed, key: story ID
+// Story parent: Feed, key: story ID
 type Story struct {
 	_kind        string         `goon:"kind,S"`
 	Id           string         `datastore:"-" goon:"id"`
@@ -190,7 +205,7 @@ type Story struct {
 
 const IDX_COL = "c"
 
-// parent: Story, key: 1
+// StoryContent parent: Story, key: 1
 type StoryContent struct {
 	_kind      string         `goon:"kind,SC"`
 	Id         int64          `datastore:"-" goon:"id"`
