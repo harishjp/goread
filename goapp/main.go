@@ -91,15 +91,11 @@ func RegisterHandlers(router *mux.Router) {
 	router.HandleFunc("/login/callback", sessionHandler.Login).Name("callback-google")
 	router.HandleFunc("/login/redirect", LoginRedirect)
 	router.HandleFunc("/logout", sessionHandler.Logout).Name("logout")
-	router.HandleFunc("/push", SubscribeCallback).Name("subscribe-callback")
 	router.HandleFunc("/tasks/import-opml", ImportOpmlTask).Name("import-opml-task")
-	router.HandleFunc("/tasks/subscribe-feed", SubscribeFeed).Name("subscribe-feed")
 	router.HandleFunc("/tasks/update-feed-last", UpdateFeedLast).Name("update-feed-last")
 	router.HandleFunc("/tasks/update-feed-manual", UpdateFeed).Name("update-feed-manual")
 	router.HandleFunc("/tasks/update-feed", UpdateFeed).Name("update-feed")
 	router.HandleFunc("/tasks/update-feeds", UpdateFeeds).Name("update-feeds")
-	router.HandleFunc("/tasks/delete-old-feeds", DeleteOldFeeds).Name("delete-old-feeds")
-	router.HandleFunc("/tasks/delete-old-feed", DeleteOldFeed).Name("delete-old-feed")
 
 	router.Handle("/user/add-subscription", wrap(AddSubscription)).Name("add-subscription")
 	router.Handle("/user/delete-account", wrap(DeleteAccount)).Name("delete-account")
@@ -121,14 +117,11 @@ func RegisterHandlers(router *mux.Router) {
 	router.HandleFunc("/admin/user", AdminUser).Name("admin-user")
 	router.HandleFunc("/date-formats", AdminDateFormats).Name("admin-date-formats")
 	router.HandleFunc("/admin/feed", AdminFeed).Name("admin-feed")
-	router.HandleFunc("/admin/subhub", AdminSubHub).Name("admin-subhub-feed")
 	router.HandleFunc("/admin/stats", AdminStats).Name("admin-stats")
 	router.HandleFunc("/admin/update-feed", AdminUpdateFeed).Name("admin-update-feed")
 	router.HandleFunc("/user/charge", Charge).Name("charge")
 	router.HandleFunc("/user/account", Account).Name("account")
 	router.HandleFunc("/user/uncheckout", Uncheckout).Name("uncheckout")
-
-	//router.Handle("/tasks/delete-blobs", mpg.NewHandler(DeleteBlobs)).Name("delete-blobs")
 
 	if !config.IsDevServer() {
 		log.Infof(context.Background(), "Production server not adding statics")

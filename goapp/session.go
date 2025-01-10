@@ -74,7 +74,7 @@ func (h *SessionHandler) createSession(payload *idtoken.Payload, w http.Response
 	}
 	now := time.Now()
 	for k, v := range h.sessions {
-		if v.Expires.After(now) {
+		if v.Expires.Before(now) {
 			delete(h.sessions, k)
 		}
 	}

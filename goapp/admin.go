@@ -69,6 +69,10 @@ func AllFeeds(w http.ResponseWriter, r *http.Request) {
 func AdminFeed(w http.ResponseWriter, r *http.Request) {
 	gn := goon.FromContext(r.Context())
 	f := Feed{Url: r.FormValue("f")}
+	key, err := datastore.DecodeKey(f.Url)
+	if err == nil && key.Kind == gn.Kind(f) {
+		f.Url = key.Name
+	}
 	if err := gn.Get(&f); err != nil {
 		serveError(w, err)
 		return
@@ -108,19 +112,6 @@ func AdminUpdateFeed(w http.ResponseWriter, r *http.Request) {
 	} else {
 		fmt.Fprintf(w, "error updating %v: %v", url, err)
 	}
-}
-
-func AdminSubHub(w http.ResponseWriter, r *http.Request) {
-	c := r.Context()
-	gn := goon.FromContext(c)
-	f := Feed{Url: r.FormValue("f")}
-	if err := gn.Get(&f); err != nil {
-		serveError(w, err)
-		return
-	}
-	f.Subscribed = time.Time{}
-	f.Subscribe(c)
-	fmt.Fprintf(w, "subscribed")
 }
 
 func AdminDateFormats(w http.ResponseWriter, _ *http.Request) {

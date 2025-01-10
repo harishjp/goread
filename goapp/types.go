@@ -20,18 +20,15 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/base64"
 	"encoding/gob"
 	"fmt"
 	"io"
-	"net/url"
 	"time"
 
 	"cloud.google.com/go/datastore"
 	"github.com/harishjp/goread/config"
 	"github.com/harishjp/goread/goon"
 	"github.com/harishjp/goread/log"
-	"github.com/harishjp/goread/task"
 )
 
 type User struct {
@@ -137,48 +134,21 @@ func (r Read) Get(feed, story string) bool {
 }
 
 type Feed struct {
-	_kind      string        `goon:"kind,F"`
-	Url        string        `datastore:"-" goon:"id"`
-	Title      string        `datastore:"t,noindex"`
-	Updated    time.Time     `datastore:"u,noindex" json:"-"`
-	Date       time.Time     `datastore:"d,noindex" json:"-"`
-	Checked    time.Time     `datastore:"c,noindex"`
-	NextUpdate time.Time     `datastore:"n"`
-	Link       string        `datastore:"l,noindex"`
-	Hub        string        `datastore:"h,noindex" json:"-"`
-	Errors     int           `datastore:"e,noindex"`
-	Image      string        `datastore:"i,noindex"`
-	ImageDate  time.Time     `datastore:"g,noindex"`
-	Subscribed time.Time     `datastore:"s,noindex" json:"-"`
-	Average    time.Duration `datastore:"a,noindex" json:"-"`
-	LastViewed time.Time     `datastore:"v" json:"-"`
-}
-
-func (f *Feed) Subscribe(c context.Context) {
-	if !f.IsSubscribed() {
-		log.Infof(c, "Subscribe %v", f.Subscribed.String())
-		err := task.SubmitTask(c, routeUrl("subscribe-feed"), url.Values{
-			"feed": {f.Url},
-		}, "update-manual")
-		if err != nil {
-			log.Errorf(c, "error submiting task: %v", err.Error())
-		}
-	}
-}
-
-func (f *Feed) IsSubscribed() bool {
-	return true
-}
-
-func (f *Feed) PubSubURL() string {
-	b := base64.URLEncoding.EncodeToString([]byte(f.Url))
-	ru, _ := getURL("subscribe-callback")
-	ru.Scheme = "http"
-	ru.Host = ""
-	ru.RawQuery = url.Values{
-		"feed": {b},
-	}.Encode()
-	return ru.String()
+	_kind        string        `goon:"kind,F"`
+	Url          string        `datastore:"-" goon:"id"`
+	Title        string        `datastore:"t,noindex"`
+	Updated      time.Time     `datastore:"u,noindex" json:"-"`
+	Date         time.Time     `datastore:"d,noindex" json:"-"`
+	Checked      time.Time     `datastore:"c,noindex"`
+	NextUpdate   time.Time     `datastore:"n"`
+	Link         string        `datastore:"l,noindex"`
+	Error        string        `datastore:"e,noindex"`
+	Image        string        `datastore:"i,noindex"`
+	ImageDate    time.Time     `datastore:"g,noindex"`
+	Average      time.Duration `datastore:"a,noindex" json:"-"`
+	LastViewed   time.Time     `datastore:"v" json:"-"`
+	CurrGen      int           `datastore:"x,noindex" json:"-"`
+	CurrGenCount int           `datastore:"y,noindex" json:"-"`
 }
 
 func (f *Feed) NotViewed() bool {
@@ -199,6 +169,7 @@ type Story struct {
 	Author       string         `datastore:"a,noindex" json:",omitempty"`
 	Summary      string         `datastore:"s,noindex"`
 	MediaContent string         `datastore:"m,noindex" json:",omitempty"`
+	Generation   int            `datastore:"g"`
 
 	content string
 }
@@ -248,10 +219,3 @@ type Stories []*Story
 func (s Stories) Len() int           { return len(s) }
 func (s Stories) Less(i, j int) bool { return s[i].Created.Before(s[j].Created) }
 func (s Stories) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
-
-type Log struct {
-	_kind  string         `goon:"kind,L"`
-	Id     int64          `datastore:"-" goon:"id"`
-	Parent *datastore.Key `datastore:"-" goon:"parent"`
-	Text   string         `datastore:"t,noindex"`
-}

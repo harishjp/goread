@@ -467,12 +467,6 @@ func parseAtom(c context.Context, body []byte, charsetReader func(string, io.Rea
 		if l, err := fb.Parse(f.Link); err == nil {
 			f.Link = l.String()
 		}
-		for _, l := range a.Link {
-			if l.Rel == "hub" {
-				f.Hub = l.Href
-				break
-			}
-		}
 	}
 
 	for _, i := range a.Entry {
@@ -529,7 +523,6 @@ func parseRSS(c context.Context, body []byte, charsetReader func(string, io.Read
 		log.Warningf(c, "no rss feed date: %v", f.Link)
 	}
 	f.Link = r.BaseLink()
-	f.Hub = r.Hub()
 
 	for _, i := range r.Items {
 		st := Story{

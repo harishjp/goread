@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"flag"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -28,22 +30,43 @@ func postRequest(url string, data string) {
 }
 
 func processFile(file *os.File, offset int64) (int64, error) {
-	file.Seek(offset, 0)
+	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+		return -1, err
+	}
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		record := strings.Split(scanner.Text(), " ")
 		postRequest(record[1], record[0])
 	}
-	return file.Seek(0, 1)
+	return file.Seek(0, io.SeekEnd)
 }
 
 func main() {
-	file, err := os.Open(os.Args[1])
-	if err != nil {
-		log.Fatalf("error opening file: %s, %v", os.Args[1], err)
+	tail := flag.Bool("t", false, "read from end of file")
+	flag.Parse()
+
+	fileName := flag.Arg(0)
+	if fileName == "" {
+		fileName = "task.txt"
 	}
-	defer file.Close()
+
+	// open file create if it does not exist
+	file, err := os.OpenFile(fileName, os.O_RDONLY|os.O_CREATE, 0644)
+	if err != nil {
+		log.Fatalf("error opening file: %s, %v", fileName, err)
+	}
+	defer func() { _ = file.Close() }()
+
+	// compute offset, if -t specified then scan from end of file.
 	offset := int64(0)
+	if *tail {
+		offset, err = file.Seek(0, io.SeekEnd)
+		if err != nil {
+			log.Fatalf("error seeking to end of file: %s, %v", fileName, err)
+		}
+	}
+	log.Printf("reading file %s from offset: %d", fileName, offset)
+
 	for {
 		offset, err = processFile(file, offset)
 		if err != nil {

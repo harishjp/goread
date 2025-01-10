@@ -9,17 +9,16 @@ This was copied from mjibson/goread and modified to work with go116 env and move
   ```
     # Start firestore emulator in datastore mode, killing and starting creates the data again.
     JAVA_HOME=$(/usr/libexec/java_home -v 21) gcloud emulators firestore start --database-mode=datastore-mode --host-port=[::1]:9090
+    # Or
+    gcloud beta emulators datastore start --data-dir DATA-DIR --host-port=[::1]:9090
+
+    # task.txt is created, it will check in loop from end of file
+    go run cmd/tasksubmit/tasksubmit.go -t
 
     # Build goapp and run it.
     go build && DATASTORE_EMULATOR_HOST=[::1]:9090 ./goread
 
-    # Optionally truncate task.txt, goread will append to it automatically.
-    truncate -s 0 task.txt
-
-    # After task.txt is created you run this, it will check in loop
-    go run cmd/tasksubmit/tasksubmit.go task.txt
-
-    # To process the feeds, run this. 
+    # To process the feeds, run this, first refresh takes a few hours and then it will compute average which gets better overtime.
     curl -H 'X-Appengine-Taskname: test' http://localhost:8080/tasks/update-feeds
 
     # Download from https://github.com/remko/dsadmin, you can run queries from the webpage to the datastore
