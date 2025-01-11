@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"net/http"
 	"os"
 
 	"github.com/harishjp/goread/log"
@@ -16,8 +15,8 @@ type Config struct {
 	AdminEmail  string `json:"adminEmail"`
 	ClientID    string `json:"clientID"`
 	RootURL     string `json:"rootURL"`
+	Region      string `json:"region"`
 	IsDevServer bool
-	Region      string
 	ProjectID   string
 }
 
@@ -41,7 +40,6 @@ func LoadConfig() {
 		config.Region = "local"
 		config.ProjectID = "local"
 	} else {
-		config.Region = getMetaData("instance/region")
 		config.ProjectID = os.Getenv("GOOGLE_CLOUD_PROJECT")
 	}
 
@@ -75,22 +73,4 @@ func RootURL() string {
 	} else {
 		return config.RootURL
 	}
-}
-
-func getMetaData(suffix string) string {
-	req, err := http.NewRequest("GET", "https://metadata/computeMetadata/v1/"+suffix, nil)
-	if err != nil {
-		panic(err)
-	}
-	req.Header.Add("Metadata-Flavor", "Google")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		panic(err)
-	}
-	return string(body)
 }

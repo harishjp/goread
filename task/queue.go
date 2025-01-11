@@ -9,6 +9,7 @@ import (
 	cloudtasks "cloud.google.com/go/cloudtasks/apiv2"
 	"cloud.google.com/go/cloudtasks/apiv2/cloudtaskspb"
 	"github.com/harishjp/goread/config"
+	"github.com/harishjp/goread/log"
 )
 
 type Task struct {
@@ -63,11 +64,15 @@ func (q *cloudTaskQueue) SubmitTask(ctx context.Context, task *Task) error {
 					HttpMethod:  task.method,
 					RelativeUri: task.url,
 					Body:        []byte(task.values.Encode()),
+					Headers:     map[string]string{"Content-Type": "application/x-www-form-urlencoded"},
 				},
 			},
 			ScheduleTime: nil,
 		},
 	})
+	if err != nil {
+		log.Warningf(ctx, "cloudtasks.CreateTask err=%v", err)
+	}
 	return err
 }
 
